@@ -1,0 +1,34 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "relay-agent",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "vars": {
+    "RELAY_API_ORIGIN": "https://api.relayapp.im"
+  },
+  // One Durable Object per conversation. The Worker derives the instance name
+  // from conversation_id, so every event for one thread lands on one object and
+  // its SQLite ledger is the single source of truth for that thread.
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "RelayConversation",
+        "class_name": "RelayConversationAgent"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["RelayConversationAgent"]
+    }
+  ]
+  // Secrets, set with `wrangler secret put` or by the deploy button:
+  //   RELAY_AGENT_TOKEN     Agent Token from the Relay app
+  //   RELAY_WEBHOOK_SECRET  signing_secret from POST /v1/webhooks
+}

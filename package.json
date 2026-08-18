@@ -1,0 +1,44 @@
+{
+  "name": "relay-agent-starter",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "description": "Starter for a Relay agent on Cloudflare Workers: signed webhook in, durable reply out.",
+  "license": "MIT",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "types": "wrangler types",
+    "check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "agents": "^0.20.1",
+    "standardwebhooks": "1.0.0",
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260818.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10",
+    "wrangler": "^4.123.0"
+  },
+  "cloudflare": {
+    "label": "Relay Agent",
+    "products": [
+      "Workers",
+      "Durable Objects"
+    ],
+    "categories": [
+      "ai"
+    ],
+    "bindings": {
+      "RELAY_AGENT_TOKEN": {
+        "description": "Agent Token from the Relay app. Create an agent, copy the rly_live_... token. Relay shows it once."
+      },
+      "RELAY_WEBHOOK_SECRET": {
+        "description": "Signing secret returned by POST /v1/webhooks when you register this Worker's URL. Relay never returns it again."
+      }
+    }
+  }
+}
