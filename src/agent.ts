@@ -18,6 +18,8 @@ import {
 interface ConversationState {
   lastEventAt: string | null;
   lastReplyAt: string | null;
+  /** Cached so the identity call does not repeat on every message. */
+  handle: string | null;
 }
 
 interface LedgerRow {
@@ -38,7 +40,7 @@ function retryDelaySeconds(attempt: number): number {
 }
 
 export class RelayConversationAgent extends Agent<Env, ConversationState> {
-  initialState: ConversationState = { lastEventAt: null, lastReplyAt: null };
+  initialState: ConversationState = { lastEventAt: null, lastReplyAt: null, handle: null };
 
   async onStart(): Promise<void> {
     await super.onStart();
@@ -144,8 +146,12 @@ export class RelayConversationAgent extends Agent<Env, ConversationState> {
       // wait. This call also starts the typing signal.
       await client.beginResponding(event.conversationId, event.messageId, event.invocationId);
 
-      const identity = await client.me();
-      const reply = await this.generateReply(messageText(message), identity.handle);
+      let handle = this.state.handle;
+      if (!handle) {
+        handle = (await client.me()).handle;
+        this.setState({ ...this.state, handle });
+      }
+      const reply = await this.generateReply(messageText(message), handle);
 
       // The digest of the reply is in the key, so a retry that produces the
       // same words replays instead of conflicting.
@@ -183,15 +189,33 @@ export class RelayConversationAgent extends Agent<Env, ConversationState> {
         }));
         return;
       }
+      // Arm the retry alarm first. Marking the row 'queued' before the alarm
+      // exists would leave a row nothing is coming back for.
+      try {
+        await this.schedule(retryDelaySeconds(attempt), "processEvent", {
+          event,
+          attempt: attempt + 1,
+        });
+      } catch (scheduleError) {
+        this.sql`
+          UPDATE relay_deliveries
+          SET status = 'failed', last_error = ${sanitizeFailure(scheduleError)},
+            updated_at = ${new Date().toISOString()}
+          WHERE event_id = ${event.eventId}
+        `;
+        console.error(JSON.stringify({
+          event: "relay_retry_schedule_failed",
+          event_id: event.eventId,
+          attempt,
+          error: sanitizeFailure(scheduleError),
+        }));
+        return;
+      }
       this.sql`
         UPDATE relay_deliveries
         SET status = 'queued', last_error = ${failure}, updated_at = ${new Date().toISOString()}
         WHERE event_id = ${event.eventId}
       `;
-      await this.schedule(retryDelaySeconds(attempt), "processEvent", {
-        event,
-        attempt: attempt + 1,
-      });
     } finally {
       await client.stopTyping(event.conversationId, event.invocationId);
     }
