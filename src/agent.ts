@@ -17,6 +17,7 @@ import { requireAgentToken } from "./env";
 import {
   acceptRelayEvent,
   isRetryableRelayError,
+  needsRecoveryArm,
   RelayClient,
   type RelayEventReference,
   replyIdempotencyKey,
@@ -97,6 +98,18 @@ export class RelayConversationAgent extends Agent<Env, ConversationState> {
       DELETE FROM relay_events
       WHERE turn_id NOT IN (SELECT turn_id FROM relay_turns)
     `;
+    // Recovery: re-arm turns whose alarm did not survive eviction (see
+    // needsRecoveryArm). Re-arming twice is harmless — processTurn no-ops on
+    // finished turns and the content-digested reply key makes a resend replay.
+    const turns = this.sql<TurnRow>`
+      SELECT turn_id, status, attempt_count FROM relay_turns
+    `;
+    for (const turn of turns.filter((row) => needsRecoveryArm(row.status))) {
+      await this.schedule(COALESCE_WINDOW_SECONDS, "processTurn", {
+        turnId: turn.turn_id,
+        attempt: turn.attempt_count + 1,
+      });
+    }
   }
 
   /**
@@ -153,6 +166,9 @@ export class RelayConversationAgent extends Agent<Env, ConversationState> {
    *   open window for a DM send): join it. Its alarm already exists.
    * - Otherwise open a new turn, keyed on the invocation_id when there is one
    *   and on this first event's id when there is not.
+   *
+   * Invariant: status checking lives in acceptRelayEvent; this must only be
+   * reached through it, so the event is already known to be new or failed.
    */
   private recordEvent(event: RelayEventReference): { turnId: string; needsAlarm: boolean } {
     const now = new Date().toISOString();

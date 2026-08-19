@@ -7,6 +7,7 @@ import {
   conversationInstanceName,
   isRetryableRelayError,
   messageText,
+  needsRecoveryArm,
   type RelayEventReference,
   RelayRequestError,
   replyIdempotencyKey,
@@ -142,6 +143,22 @@ describe("turnContent", () => {
     ]);
     expect(text).toBe("first\nsecond");
     expect(mediaCount).toBe(1);
+  });
+});
+
+describe("needsRecoveryArm", () => {
+  it("re-arms a turn stranded mid-flight, including one caught processing", () => {
+    // An isolate evicted mid-processTurn already consumed its alarm; without
+    // the onStart sweep, redeliveries answer 202 and the reply strands.
+    expect(needsRecoveryArm("processing")).toBe(true);
+    expect(needsRecoveryArm("accepting")).toBe(true);
+    expect(needsRecoveryArm("collecting")).toBe(true);
+  });
+
+  it("leaves queued retries (their alarm persisted) and finished turns alone", () => {
+    expect(needsRecoveryArm("queued")).toBe(false);
+    expect(needsRecoveryArm("completed")).toBe(false);
+    expect(needsRecoveryArm("failed")).toBe(false);
   });
 });
 

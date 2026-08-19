@@ -166,6 +166,18 @@ export async function acceptRelayEvent(
   return { status: 202 };
 }
 
+/**
+ * Which turns a cold start must re-arm. A schedule() task is consumed when its
+ * callback starts, so an isolate evicted mid-processTurn leaves a 'processing'
+ * turn with no alarm coming back for it — and redeliveries of its events
+ * answer 202 without arming one. 'accepting' and 'collecting' rows can predate
+ * a confirmed alarm the same way. 'queued' retries were armed by a fresh
+ * schedule() write that survives eviction, and terminal turns are done.
+ */
+export function needsRecoveryArm(status: string): boolean {
+  return status === "accepting" || status === "collecting" || status === "processing";
+}
+
 export function sanitizeFailure(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return message.replace(/[\r\n\t]+/g, " ").slice(0, 500);
