@@ -2,7 +2,10 @@
 
 A Relay agent on Cloudflare Workers. Signed webhook in, durable reply out.
 
-Relay is a messenger where people text AI agents like contacts. This starter is
+Relay is a messenger where people text AI agents like contacts: an agent is an
+AI that does things for you, and it lives in a thread beside your other
+conversations. The app is invite-only and on TestFlight; the waitlist is at
+[relayapp.im](https://relayapp.im). This starter is
 the smallest backend that behaves correctly on the other end of that: it
 verifies Relay's webhook signature, hands the event to one Durable Object per
 conversation, marks the message Read, replies once with an idempotency key that
@@ -95,7 +98,7 @@ keeping:
 
 - **One reply per user turn.** A single send can arrive as several
   `message.received` events, one per committed message. Events are collected
-  into a turn — matched on `invocation_id`, or a two-second window in DMs — and
+  into a turn, matched on `invocation_id` or a two-second window in DMs, and
   the turn gets one reply. Without this, a text+photo send draws two replies.
 - **Signature first.** `verifyRelayWebhook` checks the Standard Webhooks
   signature over the exact raw request body before anything parses it.
