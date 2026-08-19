@@ -76,10 +76,15 @@ Everything you change lives in one function, `generateReply` at the bottom of
 [`src/agent.ts`](src/agent.ts):
 
 ```ts
-async generateReply(text: string, handle: string): Promise<string> {
+async generateReply(text: string, mediaCount: number, handle: string): Promise<string> {
   return `@${handle} here. You said: ${text}`;
 }
 ```
+
+`text` is the whole user turn. One send can commit as several messages (Relay
+splits text and photos at ingest), and the plumbing joins them back together
+before calling you. `mediaCount` says how many media parts came along, for a
+model that cannot see them yet.
 
 Call any model you like from there. A Workers AI example is commented directly
 above it, and needs no extra secrets: add the `ai` binding to `wrangler.jsonc`,
@@ -88,6 +93,10 @@ uncomment `AI` in `src/env.ts`, and swap the return.
 Everything above that function is delivery plumbing, and it is the part worth
 keeping:
 
+- **One reply per user turn.** A single send can arrive as several
+  `message.received` events, one per committed message. Events are collected
+  into a turn — matched on `invocation_id`, or a two-second window in DMs — and
+  the turn gets one reply. Without this, a text+photo send draws two replies.
 - **Signature first.** `verifyRelayWebhook` checks the Standard Webhooks
   signature over the exact raw request body before anything parses it.
 - **Explicit routes only.** There is no `routeAgentRequest` fallthrough. The
@@ -120,7 +129,7 @@ that file.
 | File | What it holds |
 | --- | --- |
 | `src/index.ts` | Worker routes: `POST /webhooks/relay`, `GET /healthz` |
-| `src/agent.ts` | The Durable Object: ledger, retries, `generateReply` |
+| `src/agent.ts` | The Durable Object: turn ledger, retries, `generateReply` |
 | `src/relay.ts` | Signature verification, API client, idempotency, ack ordering |
 | `src/env.ts` | Bindings |
 

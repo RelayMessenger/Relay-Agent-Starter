@@ -8,7 +8,6 @@
 import { Webhook } from "standardwebhooks";
 
 export interface RelayPart {
-  part_index?: number;
   type: "text" | "media" | "voice_memo" | "link_preview" | "data";
   text?: string;
   url?: string;
@@ -83,17 +82,17 @@ function canonicalJson(value: unknown): string {
 }
 
 /**
- * Idempotency key for one reply: the event, the reply's position, and a digest
- * of what is being sent.
+ * Idempotency key for one reply: the turn, the reply's position within the
+ * turn, and a digest of what is being sent.
  *
  * The content term is the part that matters. Keyed on position alone, a retry
  * whose model wrote different words reuses the first key with a different body,
- * which Relay answers with 409 idempotency_conflict, and the event can never
+ * which Relay answers with 409 idempotency_conflict, and the turn can never
  * complete. With the digest in the key, an identical retry replays and a
  * different reply gets a new key.
  */
 export async function replyIdempotencyKey(
-  eventId: string,
+  turnId: string,
   ordinal: number,
   content: unknown,
 ): Promise<string> {
@@ -104,25 +103,37 @@ export async function replyIdempotencyKey(
   const hex = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0"))
     .join("")
     .slice(0, 32);
-  return `${eventId.slice(0, 180)}:${ordinal}:${hex}`;
+  return `${turnId.slice(0, 180)}:${ordinal}:${hex}`;
 }
 
 export type AcceptOutcome =
   | { status: 202 }
-  | { status: 200; reason: "duplicate" }
-  | { status: 204; reason: "ignored" };
+  | { status: 200; reason: "duplicate" };
 
+/**
+ * One user turn. A single send can arrive as several message.received events
+ * (Relay splits at ingest), and the agent should reply once to the turn, not
+ * once per fragment. Events are grouped into a turn and the turn is what gets
+ * processed, retried, and completed.
+ */
 export interface AcceptDependencies {
-  /** Existing ledger status for this event, if any. */
-  lookup(eventId: string): string | undefined;
-  /** Write the 'accepting' row. Must be durable before the alarm is armed. */
-  record(event: RelayEventReference): void;
-  /** Arm the alarm that will do the work. */
-  arm(event: RelayEventReference): Promise<void>;
-  /** Move the row to 'queued' once the alarm exists. */
-  markQueued(eventId: string): void;
-  /** Move the row to 'failed' when arming threw. */
-  markFailed(eventId: string, error: string): void;
+  /**
+   * Status of the turn this event already belongs to, if the event was seen
+   * before. Undefined for a first delivery.
+   */
+  lookupEvent(eventId: string): string | undefined;
+  /**
+   * Record the event durably and place it in a turn: join the turn still
+   * collecting events for this send, or open a new one. Returns the turn and
+   * whether it still needs its alarm (a joined turn already has one).
+   */
+  record(event: RelayEventReference): { turnId: string; needsAlarm: boolean };
+  /** Arm the alarm that will close the window and do the work. */
+  arm(turnId: string): Promise<void>;
+  /** Move the new turn to 'collecting' once its alarm exists. */
+  markCollecting(turnId: string): void;
+  /** Move the new turn to 'failed' when arming threw. */
+  markFailed(turnId: string, error: string): void;
 }
 
 /**
@@ -132,30 +143,57 @@ export interface AcceptDependencies {
  * AND the alarm both exist. If arming throws, this rethrows: the Worker answers
  * 5xx and Relay redelivers. Returning 202 after a failed arm would drop the
  * reply on the floor.
+ *
+ * Every event of one batch lands in one turn, so a text+photo send gets one
+ * reply, armed by whichever event opened the turn.
  */
 export async function acceptRelayEvent(
   event: RelayEventReference,
   deps: AcceptDependencies,
 ): Promise<AcceptOutcome> {
-  const existing = deps.lookup(event.eventId);
+  const existing = deps.lookupEvent(event.eventId);
   if (existing === "completed") return { status: 200, reason: "duplicate" };
-  if (existing === "accepting" || existing === "queued" || existing === "processing") {
-    return { status: 202 };
-  }
-  deps.record(event);
+  if (existing !== undefined && existing !== "failed") return { status: 202 };
+  const turn = deps.record(event);
+  if (!turn.needsAlarm) return { status: 202 };
   try {
-    await deps.arm(event);
+    await deps.arm(turn.turnId);
   } catch (error) {
-    deps.markFailed(event.eventId, sanitizeFailure(error));
+    deps.markFailed(turn.turnId, sanitizeFailure(error));
     throw error;
   }
-  deps.markQueued(event.eventId);
+  deps.markCollecting(turn.turnId);
   return { status: 202 };
 }
 
 export function sanitizeFailure(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return message.replace(/[\r\n\t]+/g, " ").slice(0, 500);
+}
+
+/** A Relay API rejection, carrying the HTTP status so retries can be classified. */
+export class RelayRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "RelayRequestError";
+  }
+}
+
+/**
+ * Should this failure be retried?
+ *
+ * A 4xx from Relay is a request Relay will refuse forever: a consumed
+ * invocation, a validation error. Retrying it reaches the same rejection every
+ * time, so it is terminal. 408 and 429 are the two transient 4xx codes.
+ * Everything else (5xx, network failures, model errors) is worth another
+ * attempt.
+ */
+export function isRetryableRelayError(error: unknown): boolean {
+  if (!(error instanceof RelayRequestError)) return true;
+  return error.status >= 500 || error.status === 408 || error.status === 429;
 }
 
 /** Client for Relay's public agent API. */
@@ -193,7 +231,10 @@ export class RelayClient {
       },
     );
     if (!response.ok) {
-      throw new Error(`Relay responding failed: ${response.status} ${await response.text()}`);
+      throw new RelayRequestError(
+        `Relay responding failed: ${response.status} ${await response.text()}`,
+        response.status,
+      );
     }
   }
 
@@ -226,27 +267,38 @@ export class RelayClient {
       }),
     });
     if (!response.ok) {
-      throw new Error(`Relay send failed: ${response.status} ${await response.text()}`);
+      throw new RelayRequestError(
+        `Relay send failed: ${response.status} ${await response.text()}`,
+        response.status,
+      );
     }
   }
 
   /**
-   * Re-read the inbound message from Relay at reply time.
+   * Re-read the turn's inbound messages from Relay at reply time.
    *
    * The ledger stores identifiers only, never anything a user wrote, so the
-   * canonical text is fetched here rather than parked in Durable Object
-   * storage. Returns undefined if the message is gone.
+   * canonical content is fetched here rather than parked in Durable Object
+   * storage. One history read covers the whole batch. Returns the messages in
+   * the order the ids were given; ids that are gone are skipped.
    */
-  async fetchMessage(conversationId: string, messageId: string): Promise<RelayMessage | undefined> {
+  async fetchMessages(conversationId: string, messageIds: string[]): Promise<RelayMessage[]> {
     const response = await fetch(
-      `${this.origin}/v1/conversations/${encodeURIComponent(conversationId)}/messages?limit=10`,
+      `${this.origin}/v1/conversations/${encodeURIComponent(conversationId)}/messages?limit=20`,
       { headers: { Authorization: `Bearer ${this.token}` } },
     );
     if (!response.ok) {
-      throw new Error(`Relay history failed: ${response.status} ${await response.text()}`);
+      throw new RelayRequestError(
+        `Relay history failed: ${response.status} ${await response.text()}`,
+        response.status,
+      );
     }
     const payload = (await response.json()) as { messages?: RelayMessage[] };
-    return (payload.messages ?? []).find((message) => message.id === messageId);
+    const byId = new Map((payload.messages ?? []).map((message) => [message.id, message]));
+    return messageIds.flatMap((id) => {
+      const message = byId.get(id);
+      return message ? [message] : [];
+    });
   }
 
   /** The agent's own identity, used to name itself in the reply. */
@@ -255,7 +307,10 @@ export class RelayClient {
       headers: { Authorization: `Bearer ${this.token}` },
     });
     if (!response.ok) {
-      throw new Error(`Relay identity failed: ${response.status} ${await response.text()}`);
+      throw new RelayRequestError(
+        `Relay identity failed: ${response.status} ${await response.text()}`,
+        response.status,
+      );
     }
     const payload = (await response.json()) as {
       agent?: { handle?: string; display_name?: string };
@@ -267,12 +322,34 @@ export class RelayClient {
   }
 }
 
-/** Plain text of a message, joining its text parts in order. */
+/** Plain text of a message. Array order is the part order; there is no index field. */
 export function messageText(message: RelayMessage): string {
   return (message.parts ?? [])
     .filter((part) => part.type === "text" && typeof part.text === "string")
-    .sort((a, b) => (a.part_index ?? 0) - (b.part_index ?? 0))
     .map((part) => part.text)
     .join("\n")
     .trim();
+}
+
+/**
+ * One user send can commit as several messages: Relay splits at ingest, one
+ * message per visible non-media part, contiguous media as one message. This
+ * flattens a whole turn's messages into what one reply should answer: the text
+ * in order, and a count of the media the model cannot read.
+ */
+export function turnContent(messages: RelayMessage[]): { text: string; mediaCount: number } {
+  const text = messages
+    .map(messageText)
+    .filter((entry) => entry.length > 0)
+    .join("\n")
+    .trim();
+  const mediaCount = messages.reduce(
+    (count, message) =>
+      count
+      + (message.parts ?? []).filter(
+        (part) => part.type === "media" || part.type === "voice_memo",
+      ).length,
+    0,
+  );
+  return { text, mediaCount };
 }
