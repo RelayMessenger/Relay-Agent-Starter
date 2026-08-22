@@ -3,7 +3,16 @@
   "version": "0.1.0",
   "type": "module",
   "private": true,
-  "description": "Starter for a Relay agent on Cloudflare Workers: signed webhook in, durable reply out.",
+  "description": "Starter for a Relay agent on Cloudflare Agents: signed webhook in, durable reply out.",
+  "keywords": [
+    "relay",
+    "cloudflare",
+    "cloudflare-agents",
+    "agents",
+    "durable-objects",
+    "webhook",
+    "ai-agent"
+  ],
   "license": "MIT",
   "scripts": {
     "dev": "wrangler dev",
@@ -32,6 +41,7 @@
     "categories": [
       "ai"
     ],
+    "docs_url": "https://docs.relayapp.im/integrations/cloudflare",
     "bindings": {
       "RELAY_AGENT_TOKEN": {
         "description": "Agent Token from the Relay app. Create an agent, copy the rly_live_... token. Relay shows it once."

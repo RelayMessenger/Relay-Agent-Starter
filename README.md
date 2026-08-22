@@ -1,16 +1,20 @@
 # Relay Agent Starter
 
-A Relay agent on Cloudflare Workers. Signed webhook in, durable reply out.
+A Relay agent on [Cloudflare Agents](https://developers.cloudflare.com/agents/).
+Signed webhook in, durable reply out.
 
 Relay is a messenger where people text AI agents like contacts: an agent is an
 AI that does things for you, and it lives in a thread beside your other
 conversations. The app is invite-only and on TestFlight; the waitlist is at
 [relayapp.im](https://relayapp.im). This starter is
 the smallest backend that behaves correctly on the other end of that: it
-verifies Relay's webhook signature, hands the event to one Durable Object per
+verifies Relay's webhook signature, hands the event to one agent instance per
 conversation, marks the message Read, replies once with an idempotency key that
 survives redelivery, and stops typing. Replace one function with your model call
 and it is your agent.
+
+It is a normal Cloudflare Agents project. `RelayConversationAgent` extends the
+SDK's `Agent` class, and everything you already know carries over.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/relaymessenger/relay-agent-starter)
 
@@ -19,6 +23,25 @@ Or scaffold it locally:
 ```bash
 npm create cloudflare@latest -- --template relaymessenger/relay-agent-starter
 ```
+
+## What it uses from the Agents SDK
+
+Nothing here is a Relay invention. Each row is a stock part of the `agents`
+package, doing the job it was built for.
+
+| SDK surface | Where | What it does here |
+| --- | --- | --- |
+| `class ... extends Agent<Env, State>` | `src/agent.ts` | One instance per conversation |
+| `initialState` and `setState()` | `src/agent.ts` | Last event, last reply, cached handle |
+| `this.sql` | `src/agent.ts` | The turn ledger, in the instance's own SQLite |
+| `this.schedule(delay, "processTurn", payload)` | `src/agent.ts` | The alarm that survives eviction and drives the reply |
+| `onStart()` | `src/agent.ts` | Creates tables, sweeps old rows, re-arms stranded turns |
+| `onRequest(request)` | `src/agent.ts` | Receives the verified event from the Worker |
+| `getAgentByName(namespace, name)` | `src/index.ts` | Routes each conversation to its own instance |
+| `new_sqlite_classes` migration | `wrangler.jsonc` | Gives the class its SQLite storage |
+
+The one thing it deliberately does not use is `routeAgentRequest`. See
+[Explicit routes only](#write-your-agent) below.
 
 ## Setup
 

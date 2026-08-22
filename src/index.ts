@@ -1,6 +1,8 @@
 /**
  * Worker boundary. Two routes, both explicit.
  */
+import { getAgentByName } from "agents";
+
 import type { Env } from "./env";
 import { requireWebhookSecret } from "./env";
 import {
@@ -60,8 +62,12 @@ export default {
         ...(envelope.data?.invocation_id ? { invocationId: envelope.data.invocation_id } : {}),
       };
 
-      // One Durable Object per conversation, named from conversation_id.
-      const stub = env.RelayConversation.getByName(
+      // One agent instance per conversation, named from conversation_id.
+      // getAgentByName is the Agents SDK's own routing helper: it resolves the
+      // same instance for the same name every time, so one thread's whole
+      // history of events lands on one object and one SQLite ledger.
+      const stub = await getAgentByName(
+        env.RelayConversation,
         await conversationInstanceName(message.conversation_id),
       );
       // A throw here becomes a 500, and Relay redelivers. That is the point:
