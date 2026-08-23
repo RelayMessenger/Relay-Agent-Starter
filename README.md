@@ -159,6 +159,26 @@ that file.
 | `src/relay.ts` | Signature verification, API client, idempotency, ack ordering |
 | `src/env.ts` | Bindings |
 
+## Already have a Think agent
+
+This starter is for an agent whose job is Relay. If you already run an agent on
+[Think](https://developers.cloudflare.com/agents/harnesses/think/), Cloudflare's
+chat agent framework, you do not need any of it: Relay is a Chat SDK adapter, so
+it becomes one more channel next to Telegram and Slack.
+
+```ts
+relay: messengerChannel(
+  chatSdkMessenger({
+    adapter: createRelayAdapter({ token, webhookSecret }),
+    provider: "relay",
+    userName: "Relay Agent",
+    verifyWebhook: relayWebhookVerifier(webhookSecret),
+  }),
+),
+```
+
+The runnable version is in [`examples/think-channel`](examples/think-channel).
+
 ## Docs
 
 Full API reference and guides: [docs.relayapp.im/quickstart](https://docs.relayapp.im/quickstart).
