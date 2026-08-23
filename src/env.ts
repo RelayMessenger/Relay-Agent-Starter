@@ -18,8 +18,8 @@ export interface Env {
   /** One Durable Object per conversation. */
   RelayConversation: DurableObjectNamespace<RelayConversationAgent>;
   /**
-   * Workers AI. Uncomment the `ai` binding in wrangler.jsonc and this line to
-   * use it from generateReply in src/agent.ts.
+   * Workers AI. Add the `ai` binding to wrangler.jsonc and uncomment this line
+   * to use it from generateReply in src/agent.ts.
    */
   // AI: Ai;
 }
