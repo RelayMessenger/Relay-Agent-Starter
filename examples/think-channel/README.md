@@ -21,6 +21,8 @@ relay: messengerChannel(
 
 The channel id names the route. Called `relay`, it serves `POST /messengers/relay/webhook`, which is the URL you register with Relay.
 
+On Workers, `@relaymessenger/chat-sdk-adapter` must be `0.2.1` or newer.
+
 ## Deploy it
 
 1. Install and deploy.
@@ -70,7 +72,3 @@ In a group, a reply is scoped to the single-use invocation that produced the inb
 ## Replace one function
 
 `getModel()` is the whole model decision. It returns Workers AI here. Point it at any AI SDK model and the rest of the file is unchanged.
-
-## Known issue
-
-`@relaymessenger/chat-sdk-adapter` 0.2.0 stores the global `fetch` on its client and calls it as a method. Node allows that; Workers rejects every send with `Illegal invocation`. `src/index.ts` passes a bound `fetch` to work around it, with a comment marking the line to delete once the adapter ships the fix.

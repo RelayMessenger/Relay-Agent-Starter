@@ -62,12 +62,6 @@ export class RelayThinkAgent extends Think<Env> {
           adapter: createRelayAdapter({
             token: this.env.RELAY_AGENT_TOKEN,
             webhookSecret: this.env.RELAY_WEBHOOK_SECRET,
-            // Adapter 0.2.0 stores the global fetch on its client and calls it
-            // as a method. Node tolerates that; Workers answers every send
-            // with "Illegal invocation" instead. Handing it a bound fetch
-            // keeps `this` right. Drop this line once the adapter ships the
-            // fix.
-            fetch: (input, init) => fetch(input, init),
           }),
           provider: "relay",
           userName: "Relay Agent",
