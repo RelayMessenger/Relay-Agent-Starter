@@ -120,9 +120,9 @@ Everything above that function is delivery plumbing, and it is the part worth
 keeping:
 
 - **One reply per user turn.** A single send can arrive as several
-  `message.received` events, one per committed message. Events are collected
-  into a turn, matched on `invocation_id` or a two-second window in DMs, and
-  the turn gets one reply. Without this, a text+photo send draws two replies.
+  `message.received` events, one per committed message. Events that arrive
+  within two seconds of each other are collected into one turn, and the turn
+  gets one reply. Without this, a text+photo send draws two replies.
 - **Signature first.** `verifyRelayWebhook` checks the Standard Webhooks
   signature over the exact raw request body before anything parses it.
 - **Explicit routes only.** There is no `routeAgentRequest` fallthrough. The
@@ -135,8 +135,45 @@ keeping:
 - **Content-digested idempotency.** The reply key includes a hash of what is
   being sent, so a retry that writes different words gets a new key instead of
   colliding with `409 idempotency_conflict`.
-- **Groups work.** `invocation_id` is threaded into the reply, the Read call,
-  and the typing calls.
+- **Groups work, and stay quiet.** In a group the agent replies only when it is
+  mentioned, and says nothing otherwise. See [Groups](#groups).
+
+## Groups
+
+In a direct message the agent always replies. In a group it replies **only when
+it is mentioned**, and stays silent otherwise.
+
+Relay used to decide this. A group agent was delivered only the messages it had
+been *invoked* on, the invocation rode the event, and every reply and typing
+call had to carry it back. The server no longer works that way: a group agent
+now receives every message in the group, so the decision belongs to the agent,
+and this starter makes it for you.
+
+The rule is Relay's own rather than a new one. A mention is the **structured
+field** a client attaches to a text part, matched against your agent's handle.
+The letters in the text are presentation and carry no authority, so someone
+writing `@youragent is pretty good` is talking *about* your agent and it stays
+out of it. A mention anywhere in the turn counts, which is what keeps
+`@youragent [photo]` working when the send splits into two messages.
+
+To change it, set one var in `wrangler.jsonc`:
+
+```jsonc
+"vars": {
+  "RELAY_API_ORIGIN": "https://api.relayapp.im",
+  "RELAY_GROUP_REPLY_POLICY": "all"   // default: "mentions"
+}
+```
+
+`all` replies to every group message. Use it for an agent whose job really is to
+read the whole room — a transcriber, a moderator — and not otherwise: an agent
+that answers everything in a group is the thing the mention rule exists to
+prevent. Anything unrecognised reads as `mentions`, so a typo can never be what
+turns your agent into one.
+
+A group message the agent stayed out of is recorded as `ignored` in the ledger,
+which is terminal. A redelivery does not spend another history read reaching the
+same silence.
 
 ## Local development
 

@@ -58,7 +58,9 @@ export default {
         eventId: envelope.event_id,
         conversationId: message.conversation_id,
         messageId: message.id,
-        // Group deliveries carry this. Every reply and typing call needs it.
+        // HISTORICAL. Nothing depends on this any more; it is forwarded so the
+        // typing signal and a group send keep working against the server
+        // production has not been cut over from yet.
         ...(envelope.data?.invocation_id ? { invocationId: envelope.data.invocation_id } : {}),
       };
 

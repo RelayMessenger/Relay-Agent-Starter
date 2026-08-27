@@ -13,7 +13,7 @@
 import { Agent } from "agents";
 
 import type { Env } from "./env";
-import { requireAgentToken } from "./env";
+import { groupReplyPolicy, requireAgentToken } from "./env";
 import {
   acceptRelayEvent,
   isRetryableRelayError,
@@ -22,6 +22,7 @@ import {
   type RelayEventReference,
   replyIdempotencyKey,
   sanitizeFailure,
+  shouldReplyToTurn,
   turnContent,
 } from "./relay";
 
@@ -30,11 +31,16 @@ interface ConversationState {
   lastReplyAt: string | null;
   /** Cached so the identity call does not repeat on every message. */
   handle: string | null;
+  /** Cached beside the handle, for the same reason. */
+  agentId: string | null;
+  /** Cached because a thread never changes kind. */
+  isGroup: boolean | null;
 }
 
 interface TurnRow {
   turn_id: string;
   conversation_id: string;
+  /** HISTORICAL, kept only because an event may still carry one to forward. */
   invocation_id: string | null;
   status: string;
   attempt_count: number;
@@ -53,9 +59,16 @@ const MAX_ATTEMPTS = 6;
 /**
  * How long a turn waits for the rest of its batch before replying. The split
  * events of one send leave Relay back to back, so a couple of seconds is
- * plenty. An event that arrives after its turn closed opens a new turn; in a
- * group its send is then refused as a consumed invocation, which is terminal
- * below, so a straggler costs one logged rejection, never a storm.
+ * plenty. An event that arrives after its turn closed opens a new turn.
+ *
+ * This window used to be the fallback branch: a group batch was grouped by the
+ * `invocation_id` every event of one send shared, and only a DM fell back to
+ * the window. The server no longer mints an invocation, so the window is now
+ * the only branch, and it groups a group send the same way it always grouped a
+ * DM send — by arrival inside two seconds. A straggler that misses the window
+ * opens its own turn; in a group the mention gate is what keeps that from
+ * becoming a second reply, since the fragment carrying the `@` is the one that
+ * already landed.
  */
 const COALESCE_WINDOW_SECONDS = 2;
 
@@ -64,7 +77,13 @@ function retryDelaySeconds(attempt: number): number {
 }
 
 export class RelayConversationAgent extends Agent<Env, ConversationState> {
-  initialState: ConversationState = { lastEventAt: null, lastReplyAt: null, handle: null };
+  initialState: ConversationState = {
+    lastEventAt: null,
+    lastReplyAt: null,
+    handle: null,
+    agentId: null,
+    isGroup: null,
+  };
 
   async onStart(): Promise<void> {
     await super.onStart();
@@ -91,7 +110,7 @@ export class RelayConversationAgent extends Agent<Env, ConversationState> {
     `;
     this.sql`
       DELETE FROM relay_turns
-      WHERE status IN ('completed', 'failed')
+      WHERE status IN ('completed', 'failed', 'ignored')
         AND julianday(updated_at) < julianday('now', '-30 days')
     `;
     this.sql`
@@ -162,8 +181,10 @@ export class RelayConversationAgent extends Agent<Env, ConversationState> {
    *
    * - The event was delivered before and its turn failed: reset that turn so
    *   the redelivery gets a fresh run.
-   * - A turn is still collecting this send's batch (same invocation_id, or the
-   *   open window for a DM send): join it. Its alarm already exists.
+   * - A turn is still collecting this send's batch: join it. Its alarm already
+   *   exists. An event that still carries an invocation_id joins the turn with
+   *   the same one; every other event joins the open window, which is now the
+   *   ordinary case in a group as well as a DM.
    * - Otherwise open a new turn, keyed on the invocation_id when there is one
    *   and on this first event's id when there is not.
    *
@@ -207,8 +228,11 @@ export class RelayConversationAgent extends Agent<Env, ConversationState> {
       return { turnId: open.turn_id, needsAlarm: false };
     }
 
-    // A straggler whose invocation turn already closed cannot reuse the id;
-    // it gets its own turn and its send is refused as terminal downstream.
+    // A straggler whose turn already closed cannot reuse that turn's id; it
+    // gets its own. Relay used to refuse its send as a consumed invocation,
+    // which is what kept it from becoming a second reply; in a group that job
+    // now belongs to the mention gate, and in a DM a straggler has always been
+    // answered on its own.
     let turnId = event.eventId;
     if (event.invocationId) {
       const [taken] = this.sql<TurnRow>`
@@ -237,7 +261,8 @@ export class RelayConversationAgent extends Agent<Env, ConversationState> {
       SELECT turn_id, conversation_id, invocation_id, status, attempt_count
       FROM relay_turns WHERE turn_id = ${task.turnId} LIMIT 1
     `;
-    if (!turn || turn.status === "completed" || turn.status === "failed") return;
+    if (!turn || turn.status === "completed" || turn.status === "failed"
+      || turn.status === "ignored") return;
 
     const attempt = Math.max(turn.attempt_count + 1, task.attempt);
     this.sql`
@@ -256,24 +281,57 @@ export class RelayConversationAgent extends Agent<Env, ConversationState> {
     const invocationId = turn.invocation_id ?? undefined;
 
     const client = new RelayClient(this.env.RELAY_API_ORIGIN, requireAgentToken(this.env));
+    let typingStarted = false;
     try {
       const messages = await client.fetchMessages(turn.conversation_id, messageIds);
       if (messages.length === 0) throw new Error("Relay messages are unavailable");
 
-      // Read lands before any model work, so the sender sees Read while they
-      // wait. Reading the newest message of the batch covers the whole turn.
-      // This call also starts the typing signal.
-      await client.beginResponding(
-        turn.conversation_id,
-        messageIds[messageIds.length - 1],
-        invocationId,
-      );
-
       let handle = this.state.handle;
+      let agentId = this.state.agentId;
       if (!handle) {
-        handle = (await client.me()).handle;
-        this.setState({ ...this.state, handle });
+        const me = await client.me();
+        handle = me.handle;
+        agentId = me.id;
+        this.setState({ ...this.state, handle, agentId });
       }
+
+      // Relay used to answer this itself: a group agent was only delivered a
+      // message it had been invoked on. Nothing gates that now, so every group
+      // message arrives here and the agent decides whether it was addressed.
+      // Both reads are cached; neither answer changes for this conversation.
+      let isGroup = this.state.isGroup;
+      if (isGroup === null) {
+        isGroup = await client.isGroup(turn.conversation_id);
+        this.setState({ ...this.state, isGroup });
+      }
+      const replying = shouldReplyToTurn({
+        isGroup,
+        messages,
+        // `||`, not `??`: an identity read that answered without an id leaves
+        // an empty string, and the envelope's own agent_id beats that.
+        agent: { handle, id: agentId || undefined },
+        policy: groupReplyPolicy(this.env),
+      });
+      if (!replying) {
+        // Silence is the answer, and it is recorded as one. 'ignored' is
+        // terminal, so a redelivery of any event in this turn does not spend
+        // another history read arriving at the same silence.
+        this.sql`
+          UPDATE relay_turns
+          SET status = 'ignored', last_error = NULL, updated_at = ${new Date().toISOString()}
+          WHERE turn_id = ${turn.turn_id}
+        `;
+        return;
+      }
+
+      // Read lands before any model work, so the sender sees Read while they
+      // wait, and the typist goes up beside it. Reading the newest message of
+      // the batch covers the whole turn. These were one `/responding` call
+      // until that route was deleted.
+      await client.markRead(turn.conversation_id, messageIds[messageIds.length - 1]);
+      await client.startTyping(turn.conversation_id, invocationId);
+      typingStarted = true;
+
       const content = turnContent(messages);
       const reply = await this.generateReply(content.text, content.mediaCount, handle);
 
@@ -304,9 +362,9 @@ export class RelayConversationAgent extends Agent<Env, ConversationState> {
       `;
     } catch (error) {
       const failure = sanitizeFailure(error);
-      // A 4xx from Relay cannot succeed on retry: the invocation is consumed,
-      // or the request itself is invalid. Retrying it would reach the same
-      // rejection MAX_ATTEMPTS times.
+      // A 4xx from Relay cannot succeed on retry: the request itself is
+      // invalid, or this agent is not in that chat. Retrying it would reach
+      // the same rejection MAX_ATTEMPTS times.
       if (!isRetryableRelayError(error) || attempt >= MAX_ATTEMPTS) {
         this.sql`
           UPDATE relay_turns
@@ -350,7 +408,11 @@ export class RelayConversationAgent extends Agent<Env, ConversationState> {
         WHERE turn_id = ${turn.turn_id}
       `;
     } finally {
-      await client.stopTyping(turn.conversation_id, invocationId);
+      // Only clear a typist this turn actually raised. A turn the agent stayed
+      // out of never showed one.
+      if (typingStarted) {
+        await client.stopTyping(turn.conversation_id, invocationId);
+      }
     }
   }
 

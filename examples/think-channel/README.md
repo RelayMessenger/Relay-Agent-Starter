@@ -67,7 +67,7 @@ On Workers, `@relaymessenger/chat-sdk-adapter` must be `0.2.1` or newer.
 
 A streamed Think turn commits exactly one canonical Relay message. The adapter buffers the stream and posts once rather than editing a draft bubble into place, so nothing partial ever reaches a person.
 
-In a group, a reply is scoped to the single-use invocation that produced the inbound event. The first send of a turn carries it, and a second one cannot: Relay answers 403. Typing peeks at the invocation rather than spending it.
+In a group, nothing on the server scopes a reply any more. The single-use invocation that once did — one send per invocation, a second answered 403 — is gone, along with the route that started a response. A group agent now receives every message in the group and decides for itself whether it was addressed; the starter's own gate replies only when the agent is mentioned (see [Groups](../../README.md#groups)). This example inherits Think's turn handling and does not implement that gate, so point it at a direct message, or carry the starter's gate across before you put it in a group.
 
 ## Replace one function
 
