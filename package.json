@@ -44,7 +44,7 @@
     "docs_url": "https://docs.relayapp.im/integrations/cloudflare",
     "bindings": {
       "RELAY_AGENT_TOKEN": {
-        "description": "Agent Token from the Relay app. Create an agent, copy the rly_live_... token. Relay shows it once."
+        "description": "Agent Token from Relay Console. Create an agent, copy the rly_live_... token. Relay shows it once."
       },
       "RELAY_WEBHOOK_SECRET": {
         "description": "Signing secret returned by POST /v1/webhook-subscriptions when you register this Worker's URL. Relay never returns it again."

@@ -39,6 +39,6 @@
     }
   ]
   // Secrets, set with `wrangler secret put` or by the deploy button:
-  //   RELAY_AGENT_TOKEN     Agent Token from the Relay app
+  //   RELAY_AGENT_TOKEN     Agent Token from Relay Console
   //   RELAY_WEBHOOK_SECRET  signing_secret from POST /v1/webhook-subscriptions
 }
