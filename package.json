@@ -27,7 +27,7 @@
     "zod": "^4.1.13"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20260818.1",
+    "@types/node": "^22.20.1",
     "typescript": "^5.9.3",
     "vitest": "^4.1.10",
     "wrangler": "^4.123.0"
@@ -47,7 +47,7 @@
         "description": "Agent Token from the Relay app. Create an agent, copy the rly_live_... token. Relay shows it once."
       },
       "RELAY_WEBHOOK_SECRET": {
-        "description": "Signing secret returned by POST /v1/webhooks when you register this Worker's URL. Relay never returns it again."
+        "description": "Signing secret returned by POST /v1/webhook-subscriptions when you register this Worker's URL. Relay never returns it again."
       }
     }
   }
