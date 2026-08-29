@@ -7,6 +7,7 @@ This repository follows the current Relay v1 developer contract:
 - Standard Webhooks in
 - one durable inbox row per `event_id`
 - processing only after the webhook is accepted
+- Read and typing state through Relay v1
 - idempotent REST replies through Chats and Messages
 
 ## Delivery flow
@@ -16,15 +17,26 @@ This repository follows the current Relay v1 developer contract:
 3. The Chat's Durable Object commits the complete event and `event_id`.
 4. The Durable Object creates alarm-backed work.
 5. Only then does the Worker return `2xx`.
-6. Processing marks the Chat Read and persists the reply text before its first
-   outbound request.
+6. Processing marks the Chat Read, starts typing, and persists the reply text
+   before its first outbound request.
 7. It sends the persisted, idempotent reply through
    `POST /v1/chats/{chatId}/messages`.
+8. It stops typing after the send or any failure.
 
 Cloudflare Workers remain webhook-only because they do not reliably own a
 single long-lived outbound WebSocket. Relay's optional WebSocket transport is
 for always-on consumers that can durably enqueue every event before cumulative
 ACK.
+
+That transport upgrades `/v1/websocket` with
+`Authorization: Bearer <Agent Token>`. It has no ticket and no required
+subprotocol, and every consumer must durably implement `onFullSync`. This
+starter does not advertise or imitate it.
+
+This starter recognizes all 13 current webhook event names, handles
+`message.received`, and ignores the others unless you add a checked handler.
+It is pinned to OpenAPI SHA-256
+`09142cf0608946cba970f1280c8200723de035f58acd04586e881c1c7ba4e7ee`.
 
 ## Setup
 

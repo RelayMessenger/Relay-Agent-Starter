@@ -9,6 +9,8 @@ import {
   type RelayEventReference,
   type RelayMessageEvent,
   RelayClient,
+  RELAY_OPENAPI_SHA256,
+  RELAY_WEBHOOK_EVENT_TYPES,
   RelayRequestError,
   isRetryableRelayError,
   mentionsAgent,
@@ -100,6 +102,27 @@ describe("Standard Webhooks", () => {
 });
 
 describe("current MessageEvent shape", () => {
+  it("is pinned to the current OpenAPI and all 13 event names", () => {
+    expect(RELAY_OPENAPI_SHA256).toBe(
+      "09142cf0608946cba970f1280c8200723de035f58acd04586e881c1c7ba4e7ee",
+    );
+    expect(RELAY_WEBHOOK_EVENT_TYPES).toEqual([
+      "message.sent",
+      "message.received",
+      "message.read",
+      "message.delivered",
+      "reaction.added",
+      "reaction.removed",
+      "participant.added",
+      "participant.removed",
+      "chat.created",
+      "chat.group_name_updated",
+      "chat.group_icon_updated",
+      "chat.typing_indicator.started",
+      "chat.typing_indicator.stopped",
+    ]);
+  });
+
   it("reads text values and counts media", () => {
     expect(messageContent(message({
       parts: [
@@ -237,6 +260,36 @@ describe("current REST request shapes", () => {
     expect(JSON.parse(String(init?.body))).toEqual({
       message: { parts: [{ type: "text", value: "hello" }] },
     });
+  });
+
+  it("starts and stops typing with empty Chat-route requests", async () => {
+    const fetchMock = vi.fn(async (
+      _input: string | URL | Request,
+      _init?: RequestInit,
+    ) => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new RelayClient("https://api.relayapp.im", "token");
+    await client.startTyping("chat/id");
+    await client.stopTyping("chat/id");
+    expect(fetchMock.mock.calls.map(([url, init]) => ({
+      url,
+      method: init?.method,
+      body: init?.body,
+      authorization: new Headers(init?.headers).get("Authorization"),
+    }))).toEqual([
+      {
+        url: "https://api.relayapp.im/v1/chats/chat%2Fid/typing",
+        method: "POST",
+        body: undefined,
+        authorization: "Bearer token",
+      },
+      {
+        url: "https://api.relayapp.im/v1/chats/chat%2Fid/typing",
+        method: "DELETE",
+        body: undefined,
+        authorization: "Bearer token",
+      },
+    ]);
   });
 });
 

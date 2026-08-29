@@ -173,45 +173,50 @@ export class RelayChatAgent extends Agent<Env, ChatState> {
       }
 
       await client.markRead(message.chat.id);
-      const content = messageContent(message);
-      const handle = message.chat.owner_handle?.handle ?? "agent";
-      let reply = row.reply_text;
-      if (reply === null) {
-        reply = await this.generateReply(
-          content.text,
-          content.mediaCount,
-          handle,
-        );
-        if (!reply.trim()) throw new Error("Relay reply contained no text");
-        this.sql`
-          UPDATE relay_events SET reply_text = ${reply},
-            updated_at = ${new Date().toISOString()}
-          WHERE event_id = ${row.event_id} AND reply_text IS NULL
-        `;
-        const [persisted] = this.sql<{ reply_text: string }>`
-          SELECT reply_text FROM relay_events
-          WHERE event_id = ${row.event_id} LIMIT 1
-        `;
-        if (!persisted?.reply_text) {
-          throw new Error("Relay could not persist the reply");
+      await client.startTyping(message.chat.id);
+      try {
+        const content = messageContent(message);
+        const handle = message.chat.owner_handle?.handle ?? "agent";
+        let reply = row.reply_text;
+        if (reply === null) {
+          reply = await this.generateReply(
+            content.text,
+            content.mediaCount,
+            handle,
+          );
+          if (!reply.trim()) throw new Error("Relay reply contained no text");
+          this.sql`
+            UPDATE relay_events SET reply_text = ${reply},
+              updated_at = ${new Date().toISOString()}
+            WHERE event_id = ${row.event_id} AND reply_text IS NULL
+          `;
+          const [persisted] = this.sql<{ reply_text: string }>`
+            SELECT reply_text FROM relay_events
+            WHERE event_id = ${row.event_id} LIMIT 1
+          `;
+          if (!persisted?.reply_text) {
+            throw new Error("Relay could not persist the reply");
+          }
+          reply = persisted.reply_text;
         }
-        reply = persisted.reply_text;
-      }
-      await client.sendText({
-        chatId: message.chat.id,
-        text: reply,
-        idempotencyKey: await replyIdempotencyKey(event.event_id, 0, {
-          message: { parts: [{ type: "text", value: reply }] },
-        }),
-      });
+        await client.sendText({
+          chatId: message.chat.id,
+          text: reply,
+          idempotencyKey: await replyIdempotencyKey(event.event_id, 0, {
+            message: { parts: [{ type: "text", value: reply }] },
+          }),
+        });
 
-      const completedAt = new Date().toISOString();
-      this.setState({ ...this.state, lastReplyAt: completedAt });
-      this.sql`
-        UPDATE relay_events SET status = 'completed', last_error = NULL,
-          updated_at = ${completedAt}
-        WHERE event_id = ${row.event_id}
-      `;
+        const completedAt = new Date().toISOString();
+        this.setState({ ...this.state, lastReplyAt: completedAt });
+        this.sql`
+          UPDATE relay_events SET status = 'completed', last_error = NULL,
+            updated_at = ${completedAt}
+          WHERE event_id = ${row.event_id}
+        `;
+      } finally {
+        await client.stopTyping(message.chat.id);
+      }
     } catch (error) {
       const failure = sanitizeFailure(error);
       if (!isRetryableRelayError(error) || attempt >= MAX_ATTEMPTS) {

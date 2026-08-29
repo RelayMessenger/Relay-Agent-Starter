@@ -6,6 +6,28 @@
  */
 import { Webhook } from "standardwebhooks";
 
+export const RELAY_OPENAPI_SHA256 =
+  "09142cf0608946cba970f1280c8200723de035f58acd04586e881c1c7ba4e7ee";
+export const RELAY_WEBHOOK_VERSION = "2026-02-03";
+export const RELAY_WEBHOOK_EVENT_TYPES = [
+  "message.sent",
+  "message.received",
+  "message.read",
+  "message.delivered",
+  "reaction.added",
+  "reaction.removed",
+  "participant.added",
+  "participant.removed",
+  "chat.created",
+  "chat.group_name_updated",
+  "chat.group_icon_updated",
+  "chat.typing_indicator.started",
+  "chat.typing_indicator.stopped",
+] as const;
+
+export type RelayWebhookEventType =
+  (typeof RELAY_WEBHOOK_EVENT_TYPES)[number];
+
 export interface RelayChatHandle {
   id: string;
   handle: string;
@@ -46,9 +68,9 @@ export interface RelayMessageEvent {
 
 export interface RelayEventEnvelope {
   api_version: "v1";
-  webhook_version: string;
+  webhook_version: typeof RELAY_WEBHOOK_VERSION;
   event_id: string;
-  event_type: string;
+  event_type: RelayWebhookEventType;
   created_at: string;
   trace_id: string;
   agent_id: string;
@@ -212,6 +234,39 @@ export class RelayClient {
       Authorization: `Bearer ${this.token}`,
       "Content-Type": "application/json",
     };
+  }
+
+  private async typing(chatId: string, method: "POST" | "DELETE"): Promise<void> {
+    try {
+      const response = await fetch(
+        `${this.origin}/v1/chats/${encodeURIComponent(chatId)}/typing`,
+        { method, headers: this.headers() },
+      );
+      await response.body?.cancel();
+      if (!response.ok) {
+        console.error(JSON.stringify({
+          event: "relay_typing_indicator_failed",
+          operation: method === "POST" ? "start" : "stop",
+          status: response.status,
+          chat_id: chatId,
+        }));
+      }
+    } catch (error) {
+      console.error(JSON.stringify({
+        event: "relay_typing_indicator_failed",
+        operation: method === "POST" ? "start" : "stop",
+        error: sanitizeFailure(error),
+        chat_id: chatId,
+      }));
+    }
+  }
+
+  async startTyping(chatId: string): Promise<void> {
+    await this.typing(chatId, "POST");
+  }
+
+  async stopTyping(chatId: string): Promise<void> {
+    await this.typing(chatId, "DELETE");
   }
 
   /** Mark every visible Message in the Chat Read. The route has no body. */
