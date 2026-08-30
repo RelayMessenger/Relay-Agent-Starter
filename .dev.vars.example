@@ -1,4 +1,4 @@
-# Agent Token from the Relay app. Relay shows it once when you create an agent.
+# Staging Agent Token from Relay Console. Relay shows it once.
 RELAY_AGENT_TOKEN=rly_live_...
-# signing_secret from POST /v1/webhooks. Relay never returns it again.
+# Staging signing_secret from POST /v1/webhook-subscriptions.
 RELAY_WEBHOOK_SECRET=whsec_...

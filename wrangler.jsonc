@@ -2,33 +2,65 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "relay-agent",
   "main": "src/index.ts",
-  "compatibility_date": "2026-07-15",
+  "compatibility_date": "2026-08-29",
   "compatibility_flags": ["nodejs_compat"],
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1
   },
-  "vars": {
-    "RELAY_API_ORIGIN": "https://api.relayapp.im"
-  },
-  // One Durable Object per conversation. The Worker derives the instance name
-  // from conversation_id, so every event for one thread lands on one object and
-  // its SQLite ledger is the single source of truth for that thread.
-  "durable_objects": {
-    "bindings": [
-      {
-        "name": "RelayConversation",
-        "class_name": "RelayConversationAgent"
-      }
-    ]
-  },
   "migrations": [
     {
       "tag": "v1",
       "new_sqlite_classes": ["RelayConversationAgent"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["RelayChatAgent"],
+      "deleted_classes": ["RelayConversationAgent"]
     }
-  ]
-  // Secrets, set with `wrangler secret put` or by the deploy button:
-  //   RELAY_AGENT_TOKEN     Agent Token from the Relay app
-  //   RELAY_WEBHOOK_SECRET  signing_secret from POST /v1/webhooks
+  ],
+  "env": {
+    "staging": {
+      "name": "relay-agent-starter-staging",
+      "secrets": {
+        "required": [
+          "RELAY_AGENT_TOKEN",
+          "RELAY_WEBHOOK_SECRET"
+        ]
+      },
+      "vars": {
+        "RELAY_API_ORIGIN": "https://api.staging.relayapp.im"
+      },
+      // One isolated Durable Object namespace per environment. Every verified
+      // event is committed before the webhook receives a 2xx.
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "RelayChat",
+            "class_name": "RelayChatAgent"
+          }
+        ]
+      }
+    },
+    "production": {
+      "name": "relay-agent",
+      "secrets": {
+        "required": [
+          "RELAY_AGENT_TOKEN",
+          "RELAY_WEBHOOK_SECRET"
+        ]
+      },
+      "vars": {
+        "RELAY_API_ORIGIN": "https://api.relayapp.im"
+      },
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "RelayChat",
+            "class_name": "RelayChatAgent"
+          }
+        ]
+      }
+    }
+  }
 }
