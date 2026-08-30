@@ -8,25 +8,6 @@
     "enabled": true,
     "head_sampling_rate": 1
   },
-  "secrets": {
-    "required": [
-      "RELAY_AGENT_TOKEN",
-      "RELAY_WEBHOOK_SECRET"
-    ]
-  },
-  "vars": {
-    "RELAY_API_ORIGIN": "https://api.relayapp.im"
-  },
-  // One Durable Object per Chat. Every verified event for that Chat is
-  // durably committed here before the webhook receives a 2xx.
-  "durable_objects": {
-    "bindings": [
-      {
-        "name": "RelayChat",
-        "class_name": "RelayChatAgent"
-      }
-    ]
-  },
   "migrations": [
     {
       "tag": "v1",
@@ -37,8 +18,49 @@
       "new_sqlite_classes": ["RelayChatAgent"],
       "deleted_classes": ["RelayConversationAgent"]
     }
-  ]
-  // Secrets, set with `wrangler secret put` or by the deploy button:
-  //   RELAY_AGENT_TOKEN     Agent Token from Relay Console
-  //   RELAY_WEBHOOK_SECRET  signing_secret from POST /v1/webhook-subscriptions
+  ],
+  "env": {
+    "staging": {
+      "name": "relay-agent-starter-staging",
+      "secrets": {
+        "required": [
+          "RELAY_AGENT_TOKEN",
+          "RELAY_WEBHOOK_SECRET"
+        ]
+      },
+      "vars": {
+        "RELAY_API_ORIGIN": "https://api.staging.relayapp.im"
+      },
+      // One isolated Durable Object namespace per environment. Every verified
+      // event is committed before the webhook receives a 2xx.
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "RelayChat",
+            "class_name": "RelayChatAgent"
+          }
+        ]
+      }
+    },
+    "production": {
+      "name": "relay-agent",
+      "secrets": {
+        "required": [
+          "RELAY_AGENT_TOKEN",
+          "RELAY_WEBHOOK_SECRET"
+        ]
+      },
+      "vars": {
+        "RELAY_API_ORIGIN": "https://api.relayapp.im"
+      },
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "RelayChat",
+            "class_name": "RelayChatAgent"
+          }
+        ]
+      }
+    }
+  }
 }

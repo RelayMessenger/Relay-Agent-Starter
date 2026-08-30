@@ -24,9 +24,9 @@ This repository follows the current Relay v1 developer contract:
 8. It stops typing after the send or any failure.
 
 Cloudflare Workers remain webhook-only because they do not reliably own a
-single long-lived outbound WebSocket. Relay's optional WebSocket transport is
-for always-on consumers that can durably enqueue every event before cumulative
-ACK.
+single long-lived outbound WebSocket. The saved Webhook subscription is this
+Agent's delivery path. Relay rejects a WebSocket upgrade for this Agent with
+HTTP 409 until every subscription is removed.
 
 That transport upgrades `/v1/websocket` with
 `Authorization: Bearer <Agent Token>`. It has no ticket and no required
@@ -36,7 +36,7 @@ starter does not advertise or imitate it.
 This starter recognizes all 13 current webhook event names, handles
 `message.received`, and ignores the others unless you add a checked handler.
 It is pinned to OpenAPI SHA-256
-`09142cf0608946cba970f1280c8200723de035f58acd04586e881c1c7ba4e7ee`.
+`c73e72bfbe97863d2756948e23b52874f4f4b1c05641c7b1447744cd7ed62f42`.
 
 ## Setup
 
@@ -50,11 +50,11 @@ npx wrangler secret put RELAY_AGENT_TOKEN
 Register the deployed Worker URL:
 
 ```sh
-curl -sS -X POST "https://api.relayapp.im/v1/webhook-subscriptions" \
+curl -sS -X POST "https://api.staging.relayapp.im/v1/webhook-subscriptions" \
   -H "Authorization: Bearer $RELAY_AGENT_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "target_url": "https://relay-agent.<your-subdomain>.workers.dev/webhooks/relay",
+    "target_url": "https://relay-agent-starter-staging.<your-subdomain>.workers.dev/webhooks/relay",
     "subscribed_events": ["message.received"]
   }'
 ```
@@ -72,6 +72,11 @@ npm run dev
 ```
 
 `GET /healthz` returns `{"ok":true}`.
+
+Local development uses the isolated staging Worker configuration by default:
+the staging API origin, staging Agent Token, staging Webhook secret, and
+staging Durable Object namespace. Production has an explicit separate
+environment. There is intentionally no generic deploy script.
 
 ## Write your agent
 
@@ -108,7 +113,7 @@ To let an agent intentionally answer every group message:
 npm run types
 npm run check
 npm test
-npx wrangler deploy --dry-run
+npm run dry-run
 ```
 
 The tests prove signature verification, complete-event durable acceptance,
