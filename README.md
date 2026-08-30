@@ -1,8 +1,9 @@
 # Relay Agent Starter
 
-A webhook-first Relay agent on Cloudflare Workers and Durable Objects.
+Build a Relay agent on Cloudflare Workers and Durable Objects.
 
-This repository follows the current Relay v1 developer contract:
+The starter receives signed webhooks, processes each event durably, and replies
+through Relay API v1:
 
 - Standard Webhooks in
 - one durable inbox row per `event_id`
@@ -23,24 +24,15 @@ This repository follows the current Relay v1 developer contract:
    `POST /v1/chats/{chatId}/messages`.
 8. It stops typing after the send or any failure.
 
-Cloudflare Workers remain webhook-only because they do not reliably own a
-single long-lived outbound WebSocket. The saved Webhook subscription is this
-Agent's delivery path. Relay rejects a WebSocket upgrade for this Agent with
-HTTP 409 until every subscription is removed.
-
-That transport upgrades `/v1/websocket` with
-`Authorization: Bearer <Agent Token>`. It has no ticket and no required
-subprotocol, and every consumer must durably implement `onFullSync`. This
-starter does not advertise or imitate it.
-
-This starter recognizes all 13 current webhook event names, handles
-`message.received`, and ignores the others unless you add a checked handler.
+Subscribe this starter to `message.received`, the event it processes. Add a
+checked handler before subscribing it to another event type.
 It is pinned to OpenAPI SHA-256
-`075381533048785b837df3bcb35b9cde00e7694dc02732b2f15d4f441ef9a1dd`.
+`8561112386f0fe92e125f2d93ac93c5b70a960722426cc1ee8f23bc260b2c8a5`.
 
 ## Setup
 
-Create an Agent Contact and copy its Agent Token. Relay shows the token once.
+Create an agent in Relay Console and copy its Agent Token. Relay shows the token
+once.
 
 ```sh
 npm install
@@ -75,8 +67,7 @@ npm run dev
 
 Local development uses the isolated staging Worker configuration by default:
 the staging API origin, staging Agent Token, staging Webhook secret, and
-staging Durable Object namespace. Production has an explicit separate
-environment. There is intentionally no generic deploy script.
+staging Durable Object namespace. Production has a separate environment.
 
 ## Write your agent
 
@@ -90,8 +81,7 @@ The example implementation reads:
 - structured group mentions from `part.mention`
 - the authenticated agent Handle from `data.chat.owner_handle`
 
-It does not treat visible `@name` text as a mention unless Relay supplied the
-structured mention field.
+Only Relay's structured mention field invokes the agent in a group.
 
 ## Groups
 
