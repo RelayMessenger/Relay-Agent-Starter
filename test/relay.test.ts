@@ -104,7 +104,7 @@ describe("Standard Webhooks", () => {
 describe("current MessageEvent shape", () => {
   it("is pinned to the current OpenAPI and all 13 event names", () => {
     expect(RELAY_OPENAPI_SHA256).toBe(
-      "c73e72bfbe97863d2756948e23b52874f4f4b1c05641c7b1447744cd7ed62f42",
+      "075381533048785b837df3bcb35b9cde00e7694dc02732b2f15d4f441ef9a1dd",
     );
     expect(RELAY_WEBHOOK_EVENT_TYPES).toEqual([
       "message.sent",

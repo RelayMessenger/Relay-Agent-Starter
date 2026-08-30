@@ -36,7 +36,7 @@ starter does not advertise or imitate it.
 This starter recognizes all 13 current webhook event names, handles
 `message.received`, and ignores the others unless you add a checked handler.
 It is pinned to OpenAPI SHA-256
-`c73e72bfbe97863d2756948e23b52874f4f4b1c05641c7b1447744cd7ed62f42`.
+`075381533048785b837df3bcb35b9cde00e7694dc02732b2f15d4f441ef9a1dd`.
 
 ## Setup
 
