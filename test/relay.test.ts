@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { Webhook } from "standardwebhooks";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -8,9 +10,12 @@ import {
   type RelayEventEnvelope,
   type RelayEventReference,
   type RelayMessageEvent,
+  hasCurrentRelayVersions,
   RelayClient,
+  RELAY_API_VERSION,
   RELAY_OPENAPI_SHA256,
   RELAY_WEBHOOK_EVENT_TYPES,
+  RELAY_WEBHOOK_VERSION,
   RelayRequestError,
   isRetryableRelayError,
   mentionsAgent,
@@ -22,6 +27,18 @@ import {
 } from "../src/relay";
 
 const SECRET = "whsec_" + Buffer.from("relay-agent-starter-test-secret").toString("base64");
+const PRODUCT_CONTRACT_FILES = [
+  ".dev.vars.example",
+  "README.md",
+  "package.json",
+  "wrangler.jsonc",
+  "src/agent.ts",
+  "src/env.ts",
+  "src/index.ts",
+  "src/relay.ts",
+] as const;
+
+afterEach(() => vi.unstubAllGlobals());
 
 const OWNER = {
   id: "01993d50-ef7b-7b37-886b-23fd80c7ec10",
@@ -102,10 +119,28 @@ describe("Standard Webhooks", () => {
 });
 
 describe("current MessageEvent shape", () => {
-  it("is pinned to the current OpenAPI and all 13 event names", () => {
+  it("is pinned to API v1, webhook 2026-08-30, and the current OpenAPI", () => {
+    expect(RELAY_API_VERSION).toBe("v1");
+    expect(RELAY_WEBHOOK_VERSION).toBe("2026-08-30");
+    expect(envelope()).toMatchObject({
+      api_version: "v1",
+      webhook_version: "2026-08-30",
+    });
+    expect(hasCurrentRelayVersions(envelope())).toBe(true);
+    expect(hasCurrentRelayVersions({
+      ...envelope(),
+      api_version: "v3",
+    })).toBe(false);
+    expect(hasCurrentRelayVersions({
+      ...envelope(),
+      webhook_version: "2026-08-31",
+    })).toBe(false);
     expect(RELAY_OPENAPI_SHA256).toBe(
       "8561112386f0fe92e125f2d93ac93c5b70a960722426cc1ee8f23bc260b2c8a5",
     );
+  });
+
+  it("recognizes all 13 event names", () => {
     expect(RELAY_WEBHOOK_EVENT_TYPES).toEqual([
       "message.sent",
       "message.received",
@@ -121,6 +156,16 @@ describe("current MessageEvent shape", () => {
       "chat.typing_indicator.started",
       "chat.typing_indicator.stopped",
     ]);
+  });
+
+  it("has no accidental product /v3 path in hand-authored files", () => {
+    for (const relativePath of PRODUCT_CONTRACT_FILES) {
+      const contents = readFileSync(
+        new URL(`../${relativePath}`, import.meta.url),
+        "utf8",
+      );
+      expect(contents, relativePath).not.toMatch(/\/v3(?:\/|\b)/);
+    }
   });
 
   it("reads text values and counts media", () => {
@@ -207,6 +252,15 @@ describe("durable acceptance", () => {
     expect(state.saved()?.envelope.data?.parts[0]).toEqual({ type: "text", value: "Hello" });
   });
 
+  it("acknowledges transport without making a Relay API request", async () => {
+    const state = ledger();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(acceptRelayEvent(event, state.deps)).resolves.toEqual({ status: 202 });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("does not acknowledge when durable scheduling fails", async () => {
     const state = ledger();
     state.deps.arm = async () => { throw new Error("alarm unavailable"); };
@@ -228,8 +282,6 @@ describe("durable acceptance", () => {
 });
 
 describe("current REST request shapes", () => {
-  afterEach(() => vi.unstubAllGlobals());
-
   it("marks a Chat Read with no request body", async () => {
     const fetchMock = vi.fn(async (
       _input: string | URL | Request,

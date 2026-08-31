@@ -8,6 +8,7 @@ import { Webhook } from "standardwebhooks";
 
 export const RELAY_OPENAPI_SHA256 =
   "8561112386f0fe92e125f2d93ac93c5b70a960722426cc1ee8f23bc260b2c8a5";
+export const RELAY_API_VERSION = "v1";
 export const RELAY_WEBHOOK_VERSION = "2026-08-30";
 export const RELAY_WEBHOOK_EVENT_TYPES = [
   "message.sent",
@@ -67,7 +68,7 @@ export interface RelayMessageEvent {
 }
 
 export interface RelayEventEnvelope {
-  api_version: "v1";
+  api_version: typeof RELAY_API_VERSION;
   webhook_version: typeof RELAY_WEBHOOK_VERSION;
   event_id: string;
   event_type: RelayWebhookEventType;
@@ -75,6 +76,13 @@ export interface RelayEventEnvelope {
   trace_id: string;
   agent_id: string;
   data?: RelayMessageEvent;
+}
+
+export function hasCurrentRelayVersions(value: unknown): boolean {
+  if (value === null || typeof value !== "object") return false;
+  const envelope = value as Record<string, unknown>;
+  return envelope.api_version === RELAY_API_VERSION
+    && envelope.webhook_version === RELAY_WEBHOOK_VERSION;
 }
 
 /** The complete verified event. This object is durably stored before 2xx. */
@@ -174,13 +182,16 @@ export interface AcceptDependencies {
   lookup(eventId: string): string | undefined;
   /** Must commit the complete verified envelope durably. */
   record(event: RelayEventReference): void;
-  /** Must create durable work before the webhook can be acknowledged. */
+  /** Must create durable work before transport can be acknowledged. */
   arm(eventId: string): Promise<void>;
   markQueued(eventId: string): void;
   markFailed(eventId: string, error: string): void;
 }
 
-/** Durable acceptance ordering: event commit -> durable alarm -> 2xx. */
+/**
+ * Durable transport acceptance ordering: event commit -> durable alarm -> 2xx.
+ * The outcome is not a Read receipt and performs no Relay API side effects.
+ */
 export async function acceptRelayEvent(
   event: RelayEventReference,
   deps: AcceptDependencies,
@@ -269,7 +280,10 @@ export class RelayClient {
     await this.typing(chatId, "DELETE");
   }
 
-  /** Mark every visible Message in the Chat Read. The route has no body. */
+  /**
+   * Processing-time side effect: mark every visible Message in the Chat Read.
+   * The route has no body. Webhook verification and acceptance must not call it.
+   */
   async markRead(chatId: string): Promise<void> {
     try {
       const response = await fetch(
