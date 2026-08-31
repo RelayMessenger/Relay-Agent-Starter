@@ -4,6 +4,7 @@ import type { Env } from "./env";
 import { requireWebhookSecret } from "./env";
 import {
   chatInstanceName,
+  hasCurrentRelayVersions,
   type RelayEventEnvelope,
   type RelayEventReference,
   verifyRelayWebhook,
@@ -27,12 +28,16 @@ export default {
         return Response.json({ error: "unauthorized" }, { status: 401 });
       }
 
-      let envelope: RelayEventEnvelope;
+      let parsed: unknown;
       try {
-        envelope = JSON.parse(body) as RelayEventEnvelope;
+        parsed = JSON.parse(body) as unknown;
       } catch {
         return Response.json({ error: "invalid_json" }, { status: 400 });
       }
+      if (!hasCurrentRelayVersions(parsed)) {
+        return Response.json({ error: "invalid_event_version" }, { status: 400 });
+      }
+      const envelope = parsed as RelayEventEnvelope;
       if (typeof envelope.event_id !== "string" || envelope.event_id.length === 0) {
         return Response.json({ error: "invalid_event_id" }, { status: 400 });
       }
@@ -53,6 +58,8 @@ export default {
         messageId: message.id,
         envelope,
       };
+      // This HTTP path only accepts transport into durable work. It does not
+      // mark the Chat Read; processEvent owns that processing-time side effect.
       const stub = await getAgentByName(
         env.RelayChat,
         await chatInstanceName(message.chat.id),

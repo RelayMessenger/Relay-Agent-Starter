@@ -127,6 +127,8 @@ export class RelayChatAgent extends Agent<Env, ChatState> {
         `;
       },
     });
+    // A 2xx acknowledges durable webhook transport only. Read is emitted by
+    // processEvent after the scheduled task has started, never by acceptance.
     return new Response(null, { status: outcome.status });
   }
 
@@ -172,6 +174,8 @@ export class RelayChatAgent extends Agent<Env, ChatState> {
         return;
       }
 
+      // This task is now actually handling the message. Keep Read here, after
+      // the reply decision, rather than in webhook verification or acceptance.
       await client.markRead(message.chat.id);
       await client.startTyping(message.chat.id);
       try {
