@@ -56,7 +56,7 @@ function message(overrides: Partial<RelayMessageEvent> = {}): RelayMessageEvent 
 function envelope(data = message()): RelayEventEnvelope {
   return {
     api_version: "v1",
-    webhook_version: "2026-02-03",
+    webhook_version: "2026-08-30",
     event_id: "01993d50-ef7b-7b37-886b-23fd80c7ec14",
     event_type: "message.received",
     created_at: "2026-08-29T00:00:00.000Z",

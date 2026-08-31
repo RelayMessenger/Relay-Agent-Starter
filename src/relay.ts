@@ -8,7 +8,7 @@ import { Webhook } from "standardwebhooks";
 
 export const RELAY_OPENAPI_SHA256 =
   "8561112386f0fe92e125f2d93ac93c5b70a960722426cc1ee8f23bc260b2c8a5";
-export const RELAY_WEBHOOK_VERSION = "2026-02-03";
+export const RELAY_WEBHOOK_VERSION = "2026-08-30";
 export const RELAY_WEBHOOK_EVENT_TYPES = [
   "message.sent",
   "message.received",
