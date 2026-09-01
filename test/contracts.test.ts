@@ -66,15 +66,184 @@ describe("locked runtime contracts", () => {
     );
   });
 
-  it("guards the staging deploy by branch, cleanliness, and remote SHA", () => {
+  it("makes bare Wrangler deploy complete and non-production", () => {
+    const config = JSON.parse(
+      readFileSync("wrangler.jsonc", "utf8"),
+    ) as {
+      ai?: { binding?: string };
+      durable_objects?: {
+        bindings?: Array<{ class_name?: string; name?: string }>;
+      };
+      env?: Record<string, {
+        ai?: { binding?: string };
+        durable_objects?: {
+          bindings?: Array<{ class_name?: string; name?: string }>;
+        };
+        name?: string;
+        secrets?: { required?: string[] };
+        vars?: Record<string, string>;
+      }>;
+      name?: string;
+      secrets?: { required?: string[] };
+      vars?: Record<string, string>;
+    };
+    const manifest = JSON.parse(
+      readFileSync("package.json", "utf8"),
+    ) as { scripts?: Record<string, string> };
+    const production = config.env?.production;
+
+    expect(config.name).toBe("relay-think-agent-starter-development");
+    expect(production?.name).toBe("relay-think-agent-starter");
+    expect(config.name).not.toBe(production?.name);
+    expect(config.secrets?.required).toEqual([
+      "RELAY_AGENT_TOKEN",
+      "RELAY_WEBHOOK_SECRET",
+    ]);
+    expect(config.vars).toEqual({
+      MODEL_ID: "@cf/openai/gpt-oss-120b",
+      RELAY_AGENT_HANDLE: "your_agent_handle",
+      RELAY_API_ORIGIN: "https://api.staging.relayapp.im",
+    });
+    expect(config.ai).toEqual({ binding: "AI" });
+    expect(config.durable_objects?.bindings).toEqual([{
+      class_name: "RelayChatAgent",
+      name: "RelayChat",
+    }]);
+    expect(manifest.scripts?.deploy).toBeUndefined();
+    expect(manifest.scripts?.["dry-run:default"])
+      .toBe("wrangler deploy --dry-run");
+  });
+
+  it("fully defines non-inheritable bindings for named deploys", () => {
+    const config = JSON.parse(
+      readFileSync("wrangler.jsonc", "utf8"),
+    ) as {
+      env?: Record<string, {
+        ai?: { binding?: string };
+        durable_objects?: {
+          bindings?: Array<{ class_name?: string; name?: string }>;
+        };
+        name?: string;
+        secrets?: { required?: string[] };
+        vars?: Record<string, string>;
+      }>;
+    };
+
+    expect(config.env?.staging?.name)
+      .toBe("relay-think-agent-starter-staging");
+    expect(config.env?.production?.name)
+      .toBe("relay-think-agent-starter");
+    for (const environment of ["staging", "production"]) {
+      const target = config.env?.[environment];
+      expect(target?.secrets?.required).toEqual([
+        "RELAY_AGENT_TOKEN",
+        "RELAY_WEBHOOK_SECRET",
+      ]);
+      expect(target?.vars).toMatchObject({
+        MODEL_ID: "@cf/openai/gpt-oss-120b",
+        RELAY_AGENT_HANDLE: "your_agent_handle",
+      });
+      expect(target?.ai).toEqual({ binding: "AI" });
+      expect(target?.durable_objects?.bindings).toEqual([{
+        class_name: "RelayChatAgent",
+        name: "RelayChat",
+      }]);
+    }
+    expect(config.env?.staging?.vars?.RELAY_API_ORIGIN)
+      .toBe("https://api.staging.relayapp.im");
+    expect(config.env?.production?.vars?.RELAY_API_ORIGIN)
+      .toBe("https://api.relayapp.im");
+  });
+
+  it("guards each explicit deploy by target, branch, cleanliness, and remote SHA", () => {
     const guard = readFileSync(
-      "scripts/require-deploy-branch.mjs",
+      "scripts/deploy.mjs",
       "utf8",
     );
-    expect(guard).toMatch(/branch !== expected/u);
+    const manifest = JSON.parse(
+      readFileSync("package.json", "utf8"),
+    ) as { scripts?: Record<string, string> };
+
+    expect(manifest.scripts?.["deploy:staging"]).toBe(
+      "node scripts/deploy.mjs staging",
+    );
+    expect(manifest.scripts?.["deploy:production"]).toBe(
+      "node scripts/deploy.mjs production",
+    );
+    expect(guard).toMatch(/process\.argv\.length !== 3/u);
+    expect(guard).toMatch(/production: \{\s+branch: "main"/u);
+    expect(guard).toMatch(/staging: \{\s+branch: "staging"/u);
+    expect(guard).toMatch(/config\.env\?\.\[environment\]\?\.name/u);
+    expect(guard).toMatch(/CLOUDFLARE_ENV !== environment/u);
+    expect(guard).toMatch(/branch !== target\.branch/u);
     expect(guard).toMatch(/status", "--porcelain/u);
-    expect(guard).toMatch(/origin\/\$\{expected\}/u);
+    expect(guard).toMatch(/origin\/\$\{target\.branch\}/u);
     expect(guard).toMatch(/head !== remote/u);
+    expect(guard).toMatch(
+      /"deploy",\s+"--env",\s+environment,/u,
+    );
+  });
+
+  it("documents the locked update operation and an evidence-safe drain order", () => {
+    const readme = readFileSync("README.md", "utf8");
+    const openapi = readFileSync("contracts/relay-openapi.yaml", "utf8");
+    const updatePath = openapi.indexOf(
+      "  /v1/webhook-subscriptions/{subscriptionId}:",
+    );
+    const updateOperation = openapi.slice(
+      openapi.indexOf("    put:", updatePath),
+      openapi.indexOf("    delete:", updatePath),
+    );
+    const updateSchema = openapi.slice(
+      openapi.indexOf("    UpdateWebhookSubscriptionRequest:"),
+      openapi.indexOf("    VoiceMemoAttachment:"),
+    );
+    const migrationStart = readme.indexOf(
+      "## Move the existing staging webhook",
+    );
+    const migrationEnd = readme.indexOf("## Replace the model");
+    const migration = readme.slice(migrationStart, migrationEnd);
+
+    expect(updatePath).toBeGreaterThanOrEqual(0);
+    expect(updateOperation).toContain(
+      "operationId: updateWebhookSubscription",
+    );
+    expect(updateOperation).toContain(
+      '$ref: "#/components/schemas/UpdateWebhookSubscriptionRequest"',
+    );
+    for (const field of ["target_url", "subscribed_events", "is_active"]) {
+      expect(updateSchema).toContain(`        ${field}:`);
+    }
+    expect(migrationStart).toBeGreaterThanOrEqual(0);
+    expect(migrationEnd).toBeGreaterThan(migrationStart);
+    expect(migration).toContain(
+      "PUT /v1/webhook-subscriptions/{subscriptionId}",
+    );
+    expect(migration).toContain(
+      "$RELAY_API_ORIGIN/v1/webhook-subscriptions/$SUBSCRIPTION_ID",
+    );
+    expect(migration).not.toMatch(
+      /-X POST[\s\S]*\/v1\/webhook-subscriptions/u,
+    );
+    expect(migration).toContain('"target_url": "$OLD_WEBHOOK_URL"');
+    expect(migration).toContain(
+      '"subscribed_events": ["message.received"]',
+    );
+
+    const stop = migration.indexOf('"is_active": false');
+    const drain = migration.indexOf("Now drain the old Worker");
+    const cutover = migration.indexOf('"target_url": "$NEW_WEBHOOK_URL"');
+    const retire = migration.indexOf("Retire the old Worker only");
+    expect(stop).toBeGreaterThanOrEqual(0);
+    expect(drain).toBeGreaterThan(stop);
+    expect(cutover).toBeGreaterThan(drain);
+    expect(retire).toBeGreaterThan(cutover);
+    expect(migration).toContain(
+      "does not promise that events are buffered while",
+    );
+    expect(migration).toContain(
+      "Never create a second subscription for rollback.",
+    );
   });
 
   it("pins CI Actions and prevents checkout credential persistence", () => {

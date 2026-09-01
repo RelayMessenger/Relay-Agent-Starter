@@ -90,38 +90,125 @@ npm run dev
 For a public local webhook URL, use your normal HTTPS tunnel and register its
 exact `/webhooks/relay` path.
 
-## Register the staging webhook
+## Move the existing staging webhook
 
-This Think starter intentionally uses the new
-`relay-think-agent-starter-staging` Worker name. If you deployed the pre-Think
-`relay-agent-starter-staging`, leave it running until its durable inbox and
-scheduled retries are empty. Then move the Relay Webhook subscription to the
-new URL and retire the old Worker. Do not deploy this runtime over the old
-Durable Object namespace.
+This Think starter intentionally uses a new
+`relay-think-agent-starter-staging` Worker instead of the pre-Think
+`relay-agent-starter-staging`. Do not deploy this runtime over the old Durable
+Object namespace.
 
-After a guarded staging deployment, register exactly the deployed HTTPS URL:
+The migration must move the existing Relay subscription. Do **not** `POST` a
+second subscription. Relay v1 updates a subscription with
+`PUT /v1/webhook-subscriptions/{subscriptionId}` and the fields `target_url`,
+`subscribed_events`, and `is_active`. That update does not return a new
+`signing_secret`; the new Worker must use the existing subscription's saved
+secret.
 
-```sh
-curl -sS -X POST \
-  "https://api.staging.relayapp.im/v1/webhook-subscriptions" \
-  -H "Authorization: Bearer $RELAY_AGENT_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "target_url": "https://relay-think-agent-starter-staging.<your-subdomain>.workers.dev/webhooks/relay",
-    "subscribed_events": ["message.received"]
-  }'
-```
-
-Save the one-time `signing_secret` from the response as
-`RELAY_WEBHOOK_SECRET`. Do not put either secret in source, shell history, or
-Wrangler vars.
-
-Set Cloudflare secrets interactively:
+Deploy the new Worker, set its existing secrets interactively, and require a
+healthy response before changing the subscription:
 
 ```sh
 npx wrangler secret put RELAY_AGENT_TOKEN --env staging
 npx wrangler secret put RELAY_WEBHOOK_SECRET --env staging
+npm run deploy:staging
+curl -fsS \
+  "https://relay-think-agent-starter-staging.<your-subdomain>.workers.dev/healthz"
 ```
+
+Keep the old Worker deployed. Set these migration variables, then list the
+subscriptions and identify the one whose `target_url` is `OLD_WEBHOOK_URL`:
+
+```sh
+export RELAY_API_ORIGIN="https://api.staging.relayapp.im"
+export OLD_WEBHOOK_URL="https://relay-agent-starter-staging.<your-subdomain>.workers.dev/webhooks/relay"
+export NEW_WEBHOOK_URL="https://relay-think-agent-starter-staging.<your-subdomain>.workers.dev/webhooks/relay"
+export SUBSCRIPTION_ID="<existing-subscription-id>"
+
+curl -fsS \
+  "$RELAY_API_ORIGIN/v1/webhook-subscriptions" \
+  -H "Authorization: Bearer $RELAY_AGENT_TOKEN"
+```
+
+Confirm there is exactly one matching subscription and preserve its complete
+settings. If there is none, this is a fresh registration rather than a
+migration; follow the Relay webhook guide. If there is more than one, stop and
+resolve the duplicates before continuing.
+
+Relay's locked API does not promise that events are buffered while
+`is_active` is false. Establish an auditable sender-side maintenance boundary
+before deactivation and keep inbound senders paused until the new Worker passes
+its canary. Snapshot all pages of `GET /v1/chats` and all pages of
+`GET /v1/chats/{chatId}/messages`; retain the IDs where `is_from_me` is false.
+If senders cannot be paused and that source-of-truth snapshot cannot be
+repeated, do not use this drain-first procedure: it would create an
+unverifiable event window.
+
+With senders paused, stop ingress to the old Worker by deactivating the same
+subscription. Because the update replaces settings, send all three fields:
+
+```sh
+curl -fsS -X PUT \
+  "$RELAY_API_ORIGIN/v1/webhook-subscriptions/$SUBSCRIPTION_ID" \
+  -H "Authorization: Bearer $RELAY_AGENT_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data-binary @- <<JSON
+{
+  "target_url": "$OLD_WEBHOOK_URL",
+  "subscribed_events": ["message.received"],
+  "is_active": false
+}
+JSON
+```
+
+Read that subscription back and record the response proving the same `id`,
+the old `target_url`, and `is_active: false`:
+
+```sh
+curl -fsS \
+  "$RELAY_API_ORIGIN/v1/webhook-subscriptions/$SUBSCRIPTION_ID" \
+  -H "Authorization: Bearer $RELAY_AGENT_TOKEN"
+```
+
+Now drain the old Worker's durable inbox and scheduled retries. Prove, from the
+old runtime's authoritative queue/retry inspection, that pending inbox work,
+scheduled retries, and active webhook requests are all zero and remain zero
+across two observations after its last accepted request. Sampled HTTP logs are
+not drain proof. Repeat the Relay Chat/Message snapshot and verify that no new
+inbound Message ID appeared after the maintenance boundary. If the old runtime
+cannot provide those counters, or an inbound ID appeared, stop and account for
+it; do not claim a completed drain.
+
+After that proof, cut over by updating and reactivating the **same**
+subscription:
+
+```sh
+curl -fsS -X PUT \
+  "$RELAY_API_ORIGIN/v1/webhook-subscriptions/$SUBSCRIPTION_ID" \
+  -H "Authorization: Bearer $RELAY_AGENT_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data-binary @- <<JSON
+{
+  "target_url": "$NEW_WEBHOOK_URL",
+  "subscribed_events": ["message.received"],
+  "is_active": true
+}
+JSON
+```
+
+Read it back and save the response proving the same `id`, the new `target_url`,
+and `is_active: true`. Send one uniquely identifiable Message while the sender
+pause is still controlled; prove the new Worker accepted that webhook and
+committed exactly one reply, and prove the old Worker accepted none. Only then
+release senders.
+
+Keep the old Worker intact for the rollback window. Before cutover, rollback is
+the same `PUT` with `OLD_WEBHOOK_URL` and `is_active: true`. After cutover,
+pause senders again, deactivate the same subscription at `NEW_WEBHOOK_URL`,
+drain and prove the new Worker exactly as above, then update the same
+subscription to `OLD_WEBHOOK_URL` with `is_active: true` and run a canary.
+Never create a second subscription for rollback. Retire the old Worker only
+after the rollback window, the saved drain evidence, and the old Worker's
+continued zero-ingress observation all pass.
 
 ## Replace the model
 
@@ -152,11 +239,12 @@ npm run test:installed
 npm run dry-run
 ```
 
-The suites cover the contract lock, dependency pins, model seam, signed direct
+The suites cover the contract lock, dependency pins, deployment isolation and
+non-inherited Wrangler bindings, migration operation, model seam, signed direct
 and mentioned-group model/Action turns, unmentioned-group gating, stale Action
 recovery without duplicate delivery, and a clean registry-installed template.
 
-## Guarded staging deploy example
+## Guarded deployments
 
 Deployment is intentionally manual and branch guarded:
 
@@ -167,10 +255,29 @@ npm run test:all
 npm run deploy:staging
 ```
 
-`deploy:staging` refuses a dirty tree, any branch other than `staging`, or a
-local commit that is not exactly `origin/staging`. The repository contains no
-automatic deploy workflow. Run neither this command nor any production command
-without your own review and credentials.
+Production uses the explicit production environment from an exact reviewed
+`main`:
+
+```sh
+git switch main
+git pull --ff-only origin main
+npm run test:all
+npm run deploy:production
+```
+
+`deploy:staging` requires environment `staging`, branch `staging`, and the
+`relay-think-agent-starter-staging` Worker. `deploy:production` requires
+environment `production`, branch `main`, and the
+`relay-think-agent-starter` Worker. Both refuse a dirty tree or a local commit
+that is not exactly its `origin` branch.
+
+Wrangler bindings and vars do not inherit into named environments, so the
+default, staging, and production configurations each declare their complete
+bindings. The default target is the non-production
+`relay-think-agent-starter-development`; therefore a bare `wrangler deploy`
+cannot overwrite `relay-think-agent-starter`. There is deliberately no bare
+`deploy` package script. The repository contains no automatic deploy workflow.
+Run neither guarded command without your own review and credentials.
 
 ## Contract lock
 
