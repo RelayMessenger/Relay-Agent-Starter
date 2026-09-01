@@ -2,7 +2,7 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "relay-agent",
   "main": "src/index.ts",
-  "compatibility_date": "2026-08-29",
+  "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat"],
   "observability": {
     "enabled": true,
@@ -29,10 +29,13 @@
         ]
       },
       "vars": {
+        "MODEL_ID": "@cf/openai/gpt-oss-120b",
+        "RELAY_AGENT_HANDLE": "your_agent_handle",
         "RELAY_API_ORIGIN": "https://api.staging.relayapp.im"
       },
-      // One isolated Durable Object namespace per environment. Every verified
-      // event is committed before the webhook receives a 2xx.
+      "ai": {
+        "binding": "AI"
+      },
       "durable_objects": {
         "bindings": [
           {
@@ -51,7 +54,12 @@
         ]
       },
       "vars": {
+        "MODEL_ID": "@cf/openai/gpt-oss-120b",
+        "RELAY_AGENT_HANDLE": "your_agent_handle",
         "RELAY_API_ORIGIN": "https://api.relayapp.im"
+      },
+      "ai": {
+        "binding": "AI"
       },
       "durable_objects": {
         "bindings": [

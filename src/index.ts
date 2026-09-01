@@ -1,76 +1,30 @@
 import { getAgentByName } from "agents";
 
-import type { Env } from "./env";
-import { requireWebhookSecret } from "./env";
-import {
-  chatInstanceName,
-  hasCurrentRelayVersions,
-  type RelayEventEnvelope,
-  type RelayEventReference,
-  verifyRelayWebhook,
-} from "./relay";
+import { RelayChatAgent } from "./agent";
+import type { Bindings } from "./env";
+import { configurationErrors } from "./env";
 
-export { RelayChatAgent } from "./agent";
+export { RelayChatAgent, ThinkMessengerStateAgent } from "./agent";
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Bindings): Promise<Response> {
     const url = new URL(request.url);
 
     if (url.pathname === "/healthz" && request.method === "GET") {
-      return Response.json({ ok: true });
+      const errors = configurationErrors(env);
+      return errors.length === 0
+        ? Response.json({ ok: true })
+        : Response.json(
+            { ok: false, error: "misconfigured", details: errors },
+            { status: 503 },
+          );
     }
 
-    if (url.pathname === "/webhooks/relay" && request.method === "POST") {
-      let body: string;
-      try {
-        body = await verifyRelayWebhook(request, requireWebhookSecret(env));
-      } catch {
-        return Response.json({ error: "unauthorized" }, { status: 401 });
-      }
-
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(body) as unknown;
-      } catch {
-        return Response.json({ error: "invalid_json" }, { status: 400 });
-      }
-      if (!hasCurrentRelayVersions(parsed)) {
-        return Response.json({ error: "invalid_event_version" }, { status: 400 });
-      }
-      const envelope = parsed as RelayEventEnvelope;
-      if (typeof envelope.event_id !== "string" || envelope.event_id.length === 0) {
-        return Response.json({ error: "invalid_event_id" }, { status: 400 });
-      }
-
-      const message = envelope.data;
-      if (
-        envelope.event_type !== "message.received"
-        || !message?.chat?.id
-        || !message.id
-        || message.direction !== "inbound"
-      ) {
-        return new Response(null, { status: 204 });
-      }
-
-      const event: RelayEventReference = {
-        eventId: envelope.event_id,
-        chatId: message.chat.id,
-        messageId: message.id,
-        envelope,
-      };
-      // This HTTP path only accepts transport into durable work. It does not
-      // mark the Chat Read; processEvent owns that processing-time side effect.
-      const stub = await getAgentByName(
-        env.RelayChat,
-        await chatInstanceName(message.chat.id),
-      );
-      return stub.fetch(new Request("https://relay-agent.internal/event", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(event),
-      }));
+    if (url.pathname === "/webhooks/relay") {
+      const root = await getAgentByName(env.RelayChat, "relay-messenger");
+      return root.fetch(request);
     }
 
     return new Response("Not found", { status: 404 });
   },
-} satisfies ExportedHandler<Env>;
+} satisfies ExportedHandler<Bindings>;

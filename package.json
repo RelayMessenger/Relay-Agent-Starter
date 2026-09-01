@@ -3,42 +3,61 @@
   "version": "0.1.0",
   "type": "module",
   "private": true,
-  "description": "Starter for a Relay agent on Cloudflare Agents: signed webhook in, durable reply out.",
+  "description": "Minimal Cloudflare Think starter for a Relay Messenger agent.",
   "keywords": [
     "relay",
     "cloudflare",
-    "cloudflare-agents",
-    "agents",
-    "durable-objects",
+    "think",
+    "messenger",
     "webhook",
     "ai-agent"
   ],
+  "homepage": "https://github.com/RelayMessenger/Relay-Agent-Starter#readme",
+  "bugs": {
+    "url": "https://github.com/RelayMessenger/Relay-Agent-Starter/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RelayMessenger/Relay-Agent-Starter.git"
+  },
   "license": "MIT",
+  "engines": {
+    "node": ">=22.22.3"
+  },
   "scripts": {
     "dev": "wrangler dev --env staging",
     "deploy:staging": "node scripts/require-deploy-branch.mjs staging && wrangler deploy --env staging",
-    "deploy:production": "node scripts/require-deploy-branch.mjs main && wrangler deploy --env production",
     "dry-run": "wrangler deploy --env staging --dry-run",
     "types": "wrangler types --env staging",
     "types:check": "wrangler types --env staging --check",
     "check": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "npm run test:unit && npm run test:workerd",
+    "test:unit": "vitest run --config vitest.config.ts",
+    "test:workerd": "vitest run --config vitest.workerd.config.ts",
+    "test:installed": "node scripts/test-installed-template.mjs",
+    "test:all": "npm run types:check && npm run check && npm test && npm run test:installed && npm run dry-run"
   },
   "dependencies": {
-    "agents": "^0.21.0",
-    "standardwebhooks": "1.0.0",
-    "zod": "^4.1.13"
+    "@cloudflare/think": "0.17.0",
+    "@relaymessenger/chat-sdk-adapter": "0.3.0-staging.0",
+    "@relaymessenger/sdk": "0.3.0-staging.4",
+    "agents": "0.22.0",
+    "ai": "7.0.66",
+    "chat": "4.39.0",
+    "zod": "4.4.3"
   },
   "devDependencies": {
-    "@types/node": "^22.20.1",
-    "typescript": "^5.9.3",
-    "vitest": "^4.1.10",
-    "wrangler": "^4.123.0"
+    "@cloudflare/vitest-plugin": "1.1.2",
+    "@types/node": "22.18.0",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11",
+    "wrangler": "4.127.1"
   },
   "cloudflare": {
-    "label": "Relay Agent",
+    "label": "Relay Think Agent",
     "products": [
       "Workers",
+      "Workers AI",
       "Durable Objects"
     ],
     "categories": [
@@ -47,10 +66,10 @@
     "docs_url": "https://docs.relayapp.im/integrations/cloudflare",
     "bindings": {
       "RELAY_AGENT_TOKEN": {
-        "description": "Agent Token from Relay Console. Create an agent, copy the rly_live_... token. Relay shows it once."
+        "description": "Agent Token from Relay Console. Relay shows it once."
       },
       "RELAY_WEBHOOK_SECRET": {
-        "description": "Signing secret returned by POST /v1/webhook-subscriptions when you register this Worker's URL. Relay never returns it again."
+        "description": "Signing secret returned when this Worker's Relay webhook subscription is created. Relay shows it once."
       }
     }
   }

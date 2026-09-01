@@ -1,51 +1,97 @@
 # Relay Agent Starter
 
-Build a Relay agent on Cloudflare Workers and Durable Objects.
+Minimal, forkable [Cloudflare Think](https://developers.cloudflare.com/agents/harnesses/think/)
+agent for [Relay Messenger](https://relayapp.im).
 
-The starter receives signed webhooks, processes each event durably, and replies
-through Relay API v1:
+It uses:
 
-- Standard Webhooks in
-- one durable inbox row per `event_id`
-- webhook `2xx` responses that acknowledge transport only
-- Read only after durable processing actually begins
-- Read and typing state through Relay v1
-- idempotent REST replies through Chats and Messages
+- `@cloudflare/think@0.17.0` and native durable recovery;
+- `chatSdkMessenger()` with Relay's official Chat SDK adapter;
+- one Think thread conversation per Relay Chat;
+- signed Standard Webhooks ingress at `POST /webhooks/relay`;
+- direct-message replies and canonical structured mentions in groups;
+- one buffered, idempotent Relay Message per model turn.
 
-## Delivery flow
+There are no application-owned event or send tables, polling loops, outbound
+WebSockets, partial Message bubbles, Message effects, or copied Relay client.
+Think owns conversation memory, fibers, recovery, and its Action ledger. The
+Relay packages own webhook verification and API calls.
 
-1. Relay sends `message.received` to `POST /webhooks/relay`.
-2. The Worker verifies the Standard Webhooks signature over the raw body.
-3. The Chat's Durable Object commits the complete event and `event_id`.
-4. The Durable Object creates alarm-backed work.
-5. Only then does the Worker return `2xx`. This acknowledges durable transport;
-   it is not a Read receipt.
-6. When scheduled processing begins and decides to handle the message, it marks
-   the Chat Read, starts typing, and persists the reply text before its first
-   outbound message request.
-7. It sends the persisted, idempotent reply through
-   `POST /v1/chats/{chatId}/messages`.
-8. It stops typing after the send or any failure.
+## How a Message moves
 
-Subscribe this starter to `message.received`, the event it processes. Add a
-checked handler before subscribing it to another event type.
-It is pinned to OpenAPI SHA-256
-`8561112386f0fe92e125f2d93ac93c5b70a960722426cc1ee8f23bc260b2c8a5`.
+1. Relay sends a signed `message.received` webhook.
+2. `@relaymessenger/chat-sdk-adapter` verifies the exact raw body before parsing.
+3. Think maps `relay:<Chat UUID>` to one durable thread conversation.
+4. Direct Messages start turns. Group Messages start turns only when a text
+   part's structured `mention` matches the receiving Chat's `owner_handle`.
+5. Think runs the model in a recoverable fiber. The model must call the native
+   `reply` Action once.
+6. The Action commits one complete Message through
+   `@relaymessenger/sdk@0.3.0-staging.4`. Its stable idempotency key is derived
+   from the inbound Relay Message ID.
 
-## Setup
+Think's streamed response surface is intentionally limited to zero visible
+characters. Relay therefore never receives a draft or a second fallback
+Message; only the complete Action payload is committed.
 
-Create an agent in Relay Console and copy its Agent Token. Relay shows the token
-once.
+## Prerequisites
+
+- Node.js 22.22.3 or newer
+- a Cloudflare account with Workers AI
+- a staging agent and Agent Token from Relay Console
+
+The adapter release used by this staging branch is
+`@relaymessenger/chat-sdk-adapter@0.3.0-staging.0`. Until that version is
+published, repository development uses a tarball built from the coordinated
+`Relay-Chat-SDK` source checkout at
+`f90e312aeecefa9c929398a56be77441e8c2137c`. Forks should install the published
+version.
+
+## Local setup
+
+Install exact dependencies:
 
 ```sh
 npm install
-npx wrangler secret put RELAY_AGENT_TOKEN
 ```
 
-Register the deployed Worker URL:
+Copy the local secret template:
 
 ```sh
-curl -sS -X POST "https://api.staging.relayapp.im/v1/webhook-subscriptions" \
+cp .dev.vars.example .dev.vars
+```
+
+Set both values in `.dev.vars`:
+
+```dotenv
+RELAY_AGENT_TOKEN=replace-with-staging-agent-token
+RELAY_WEBHOOK_SECRET=whsec_replace-with-staging-webhook-secret
+```
+
+The non-secret staging settings are in `wrangler.jsonc`:
+
+```text
+RELAY_API_ORIGIN=https://api.staging.relayapp.im
+RELAY_AGENT_HANDLE=your_agent_handle
+MODEL_ID=@cf/openai/gpt-oss-120b
+```
+
+Change `RELAY_AGENT_HANDLE` to the agent's Relay Handle. Start the Worker:
+
+```sh
+npm run dev
+```
+
+For a public local webhook URL, use your normal HTTPS tunnel and register its
+exact `/webhooks/relay` path.
+
+## Register the staging webhook
+
+After a guarded staging deployment, register exactly the deployed HTTPS URL:
+
+```sh
+curl -sS -X POST \
+  "https://api.staging.relayapp.im/v1/webhook-subscriptions" \
   -H "Authorization: Bearer $RELAY_AGENT_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -54,74 +100,87 @@ curl -sS -X POST "https://api.staging.relayapp.im/v1/webhook-subscriptions" \
   }'
 ```
 
-Save the one-time `signing_secret`:
+Save the one-time `signing_secret` from the response as
+`RELAY_WEBHOOK_SECRET`. Do not put either secret in source, shell history, or
+Wrangler vars.
+
+Set Cloudflare secrets interactively:
 
 ```sh
-npx wrangler secret put RELAY_WEBHOOK_SECRET
+npx wrangler secret put RELAY_AGENT_TOKEN --env staging
+npx wrangler secret put RELAY_WEBHOOK_SECRET --env staging
 ```
 
-Then run:
+## Replace the model
 
-```sh
-npm run dev
-```
+[`src/model.ts`](src/model.ts) is the model seam:
 
-`GET /healthz` returns `{"ok":true}`.
-
-Local development uses the isolated staging Worker configuration by default:
-the staging API origin, staging Agent Token, staging Webhook secret, and
-staging Durable Object namespace. Production has a separate environment.
-
-## Write your agent
-
-Replace `generateReply` in [`src/agent.ts`](src/agent.ts). The rest of the
-file is receive, deduplication, retry, and send plumbing.
-
-The example implementation reads:
-
-- text from `part.value`
-- attachments from `media` parts
-- structured group mentions from `part.mention`
-- the authenticated agent Handle from `data.chat.owner_handle`
-
-Only Relay's structured mention field invokes the agent in a group.
-
-## Groups
-
-Direct messages are answered by default. Group messages are answered only when
-they contain a structured mention of this agent.
-
-To let an agent intentionally answer every group message:
-
-```jsonc
-"vars": {
-  "RELAY_API_ORIGIN": "https://api.relayapp.im",
-  "RELAY_GROUP_REPLY_POLICY": "all"
+```ts
+export function starterModel(env) {
+  return env.MODEL_ID;
 }
 ```
+
+Return another Workers AI model ID, or replace the function with any AI SDK
+`LanguageModel`. Relay ingress, group routing, recovery, and canonical delivery
+do not need to change.
+
+Change the short system prompt in [`src/agent.ts`](src/agent.ts) for product
+behavior. Keep the instruction to call `reply` once unless you also replace the
+delivery design.
 
 ## Validate
 
 ```sh
-npm run types
+npm run types:check
 npm run check
-npm test
+npm run test:unit
+npm run test:workerd
+npm run test:installed
 npm run dry-run
 ```
 
-The tests prove signature verification, transport-only `2xx` acceptance,
-complete-event durability, `event_id` deduplication, group mentions,
-idempotency, pinned API and webhook versions, and exact v1 request paths and
-bodies. They also guard hand-authored product files against accidental
-major-version-three paths. The dry run builds locally and does not publish.
+The suites cover the contract lock, dependency pins, model seam, canonical SDK
+request, Think messenger mapping, signed workerd ingress, group mention gate,
+and a clean installed-template build.
 
-## Layout
+## Guarded staging deploy example
 
-| File | Purpose |
-| --- | --- |
-| `src/index.ts` | Public webhook and health routes |
-| `src/agent.ts` | Durable inbox, retries, processing, and model hook |
-| `src/relay.ts` | Current webhook types, Standard Webhooks, and REST client |
-| `src/env.ts` | Worker bindings |
+Deployment is intentionally manual and branch guarded:
 
-Full docs: <https://docs.relayapp.im>
+```sh
+git switch staging
+git pull --ff-only origin staging
+npm run test:all
+npm run deploy:staging
+```
+
+`deploy:staging` refuses a dirty tree, any branch other than `staging`, or a
+local commit that is not exactly `origin/staging`. The repository contains no
+automatic deploy workflow. Run neither this command nor any production command
+without your own review and credentials.
+
+## Contract lock
+
+This revision is tested against:
+
+- Relay Server `9b4d5bb32cc749c6fd271969948c385300d404d6`
+- Relay Chat SDK `f90e312aeecefa9c929398a56be77441e8c2137c`
+- `@relaymessenger/chat-sdk-adapter@0.3.0-staging.0` npm integrity
+  `sha512-IuWa2VVv3hKArnQPO6SV4Ntq+/9pp7eEIzWgVSBgg6E5pWpVV+hxTFCwfwwBJvmhYjzVgOFxrrk6haL05ANquw==`
+- OpenAPI SHA-256
+  `f62f431fc0daa48500926bf87753f81c3fdda25ab463b130ca97f2896367e0a5`
+- Relay API `v1`
+- Relay webhook payload version `2026-08-30`
+
+The unchanged OpenAPI fixture is under [`contracts/`](contracts/).
+
+## Documentation
+
+- [Relay developer docs](https://docs.relayapp.im)
+- [Relay + Cloudflare integration](https://docs.relayapp.im/integrations/cloudflare)
+- [Relay webhook guide](https://docs.relayapp.im/guides/webhooks)
+- [Cloudflare Think](https://developers.cloudflare.com/agents/harnesses/think/)
+- [Think Messengers](https://developers.cloudflare.com/agents/harnesses/think/messengers/)
+- [Think durable recovery](https://developers.cloudflare.com/agents/harnesses/think/recovery/)
+- [Workers secrets](https://developers.cloudflare.com/workers/configuration/secrets/)

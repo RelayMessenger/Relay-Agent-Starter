@@ -1,0 +1,32 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "relay-agent-starter-workerd-tests",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "RelayChat",
+        "class_name": "RelayChatAgent"
+      },
+      {
+        "name": "ThinkMessengerStateAgent",
+        "class_name": "ThinkMessengerStateAgent"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["RelayChatAgent"]
+    }
+  ],
+  "vars": {
+    "MODEL_ID": "@cf/openai/gpt-oss-120b",
+    "RELAY_AGENT_HANDLE": "starter_test",
+    "RELAY_AGENT_TOKEN": "relay-test-token",
+    "RELAY_API_ORIGIN": "https://api.staging.relayapp.im",
+    "RELAY_WEBHOOK_SECRET": "whsec_dGVzdC1zZWNyZXQ="
+  }
+}

@@ -2,11 +2,8 @@ name: CI
 
 on:
   push:
-    branches: [staging]
+    branches: [main, staging]
   pull_request:
-
-permissions:
-  contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -14,28 +11,20 @@ concurrency:
 
 jobs:
   test:
-    name: Check, test, and Worker dry run
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 22.22.3
           cache: npm
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Check generated types
-        run: npm run types:check
-
-      - name: Typecheck
-        run: npm run check
-
-      - name: Test
-        run: npm test
-
-      - name: Worker dry run
-        run: npm run dry-run
+      - run: npm ci
+      - run: npm run types:check
+      - run: npm run check
+      - run: npm run test:unit
+      - run: npm run test:workerd
+      - run: npm run test:installed
+      - run: npm run dry-run
