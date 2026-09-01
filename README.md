@@ -48,8 +48,9 @@ the existing Message instead of creating a duplicate.
 
 The adapter release used by this staging branch is
 `@relaymessenger/chat-sdk-adapter@0.3.0-staging.0`, published to npm with
-provenance from the coordinated `Relay-Chat-SDK` source checkout at
-`f90e312aeecefa9c929398a56be77441e8c2137c`.
+provenance from `Relay-Chat-SDK`
+`469a9c1aafed7e31cdc4e8581df4dd6a34c94e17`. Its runtime implementation was
+independently audited at `f90e312aeecefa9c929398a56be77441e8c2137c`.
 
 ## Local setup
 
