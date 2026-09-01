@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "relay-agent",
+  "name": "relay-think-agent-starter",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat"],
@@ -21,7 +21,7 @@
   ],
   "env": {
     "staging": {
-      "name": "relay-agent-starter-staging",
+      "name": "relay-think-agent-starter-staging",
       "secrets": {
         "required": [
           "RELAY_AGENT_TOKEN",
@@ -46,7 +46,7 @@
       }
     },
     "production": {
-      "name": "relay-agent",
+      "name": "relay-think-agent-starter",
       "secrets": {
         "required": [
           "RELAY_AGENT_TOKEN",

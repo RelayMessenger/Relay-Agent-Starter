@@ -129,7 +129,7 @@ describe("locked runtime contracts", () => {
     expect(source).toMatch(/chatSdkMessenger\(/u);
     expect(source).toMatch(/extends Think<Bindings>/u);
     expect(source).toMatch(
-      /ACTION_RETRY_LEASE_MS = 5 \* 60 \* 1_000/u,
+      /ACTION_RETRY_LEASE_MS = 0/u,
     );
     expect(source).toMatch(
       /actionLedgerPendingRetryLeaseMs = ACTION_RETRY_LEASE_MS/u,

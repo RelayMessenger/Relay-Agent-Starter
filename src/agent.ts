@@ -30,7 +30,8 @@ import {
 export { ThinkMessengerStateAgent };
 
 const RELAY_WEBHOOK_PATH = "/webhooks/relay";
-const ACTION_RETRY_LEASE_MS = 5 * 60 * 1_000;
+// Relay's downstream Message idempotency key makes immediate reclaim safe.
+const ACTION_RETRY_LEASE_MS = 0;
 const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 

@@ -36,9 +36,9 @@ characters. Relay therefore never receives a draft or a second fallback
 Message; only the complete Action payload is committed.
 
 If an isolate dies after Relay commits the Message but before Think settles the
-Action ledger row, Think reclaims that pending Action after a bounded five-minute
-lease. The retry uses the same Relay idempotency key and body, so Relay replays
-the existing Message instead of creating a duplicate.
+Action ledger row, Think can reclaim that pending Action immediately. The retry
+uses the same Relay idempotency key and body, so Relay replays the existing
+Message instead of creating a duplicate.
 
 ## Prerequisites
 
@@ -92,6 +92,13 @@ exact `/webhooks/relay` path.
 
 ## Register the staging webhook
 
+This Think starter intentionally uses the new
+`relay-think-agent-starter-staging` Worker name. If you deployed the pre-Think
+`relay-agent-starter-staging`, leave it running until its durable inbox and
+scheduled retries are empty. Then move the Relay Webhook subscription to the
+new URL and retire the old Worker. Do not deploy this runtime over the old
+Durable Object namespace.
+
 After a guarded staging deployment, register exactly the deployed HTTPS URL:
 
 ```sh
@@ -100,7 +107,7 @@ curl -sS -X POST \
   -H "Authorization: Bearer $RELAY_AGENT_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "target_url": "https://relay-agent-starter-staging.<your-subdomain>.workers.dev/webhooks/relay",
+    "target_url": "https://relay-think-agent-starter-staging.<your-subdomain>.workers.dev/webhooks/relay",
     "subscribed_events": ["message.received"]
   }'
 ```

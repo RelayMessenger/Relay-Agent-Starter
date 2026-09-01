@@ -11,7 +11,7 @@ export { ThinkMessengerStateAgent } from "../../src/index";
 
 export const TEST_REPLY_TEXT = "A complete test reply.";
 
-const TEST_ACTION_RETRY_LEASE_MS = 10;
+const TEST_ACTION_RETRY_LEASE_MS = 0;
 
 interface ActionLedgerRow {
   key: string;
