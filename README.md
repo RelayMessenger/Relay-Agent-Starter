@@ -104,7 +104,42 @@ second subscription. Relay v1 updates a subscription with
 `signing_secret`; the new Worker must use the existing subscription's saved
 secret.
 
-Deploy the new Worker, set its existing secrets interactively, and require a
+Relay v1 exposes subscription settings, but no pending-delivery queue, delivery
+attempt list, queue depth, or maximum retry horizon. A subscription read, Chat
+snapshot, quiet log, or zero application work count therefore cannot prove that
+Relay has no older delivery left for the old URL. Do not deactivate the
+subscription and call the old Worker drained; `is_active: false` has no
+contractual buffering guarantee and does not account for already-pending
+deliveries.
+
+The safest upgrade preserves the existing Worker URL, Durable Object identity,
+and event state. Use that path only when the new code and migrations are
+compatible with the old namespace. The pre-Think namespace is not compatible
+with this starter, so moving to the new Worker requires an idempotent overlap.
+
+During overlap, a Relay event may execute in both durable states. Think's
+Action ledger key `message:<inbound-message-id>` deduplicates reply retries
+inside one state; it is not a cross-Worker event lock. The cross-Worker boundary
+is Relay's authenticated Message idempotency key
+`relay-agent-starter:<inbound-message-id>`. This starter has no other
+user-visible Action. If both Workers send the same body, Relay replays the
+existing Message. If their bodies differ, Relay returns an idempotency conflict
+instead of committing a second Message. The winning Message remains canonical,
+but the losing Action can remain failed and must be observed.
+
+Before moving the target, verify that the old runtime:
+
+- stays online with its Durable Objects, schedules, secrets, and old URL;
+- uses the same Agent Token and saved webhook signing secret;
+- derives the exact same outbound idempotency key from the inbound Relay
+  Message ID; and
+- has no non-idempotent side effect outside that Relay Message send.
+
+If any condition is false, do not cut over. First ship and audit a compatibility
+release on the old runtime that adds these boundaries without changing its
+state identity, or keep the old subscription and Worker unchanged.
+
+Deploy the new Worker, set the existing secrets interactively, and require a
 healthy response before changing the subscription:
 
 ```sh
@@ -134,52 +169,8 @@ settings. If there is none, this is a fresh registration rather than a
 migration; follow the Relay webhook guide. If there is more than one, stop and
 resolve the duplicates before continuing.
 
-Relay's locked API does not promise that events are buffered while
-`is_active` is false. Establish an auditable sender-side maintenance boundary
-before deactivation and keep inbound senders paused until the new Worker passes
-its canary. Snapshot all pages of `GET /v1/chats` and all pages of
-`GET /v1/chats/{chatId}/messages`; retain the IDs where `is_from_me` is false.
-If senders cannot be paused and that source-of-truth snapshot cannot be
-repeated, do not use this drain-first procedure: it would create an
-unverifiable event window.
-
-With senders paused, stop ingress to the old Worker by deactivating the same
-subscription. Because the update replaces settings, send all three fields:
-
-```sh
-curl -fsS -X PUT \
-  "$RELAY_API_ORIGIN/v1/webhook-subscriptions/$SUBSCRIPTION_ID" \
-  -H "Authorization: Bearer $RELAY_AGENT_TOKEN" \
-  -H "Content-Type: application/json" \
-  --data-binary @- <<JSON
-{
-  "target_url": "$OLD_WEBHOOK_URL",
-  "subscribed_events": ["message.received"],
-  "is_active": false
-}
-JSON
-```
-
-Read that subscription back and record the response proving the same `id`,
-the old `target_url`, and `is_active: false`:
-
-```sh
-curl -fsS \
-  "$RELAY_API_ORIGIN/v1/webhook-subscriptions/$SUBSCRIPTION_ID" \
-  -H "Authorization: Bearer $RELAY_AGENT_TOKEN"
-```
-
-Now drain the old Worker's durable inbox and scheduled retries. Prove, from the
-old runtime's authoritative queue/retry inspection, that pending inbox work,
-scheduled retries, and active webhook requests are all zero and remain zero
-across two observations after its last accepted request. Sampled HTTP logs are
-not drain proof. Repeat the Relay Chat/Message snapshot and verify that no new
-inbound Message ID appeared after the maintenance boundary. If the old runtime
-cannot provide those counters, or an inbound ID appeared, stop and account for
-it; do not claim a completed drain.
-
-After that proof, cut over by updating and reactivating the **same**
-subscription:
+Keep the subscription active and move the **same** subscription in one update.
+Because the operation replaces settings, send all three fields:
 
 ```sh
 curl -fsS -X PUT \
@@ -196,19 +187,24 @@ JSON
 ```
 
 Read it back and save the response proving the same `id`, the new `target_url`,
-and `is_active: true`. Send one uniquely identifiable Message while the sender
-pause is still controlled; prove the new Worker accepted that webhook and
-committed exactly one reply, and prove the old Worker accepted none. Only then
-release senders.
+and `is_active: true`. Send one uniquely identifiable Message and verify the
+new Worker can accept it and commit a reply. That canary verifies the new path;
+it does not prove that the old path has no pending delivery.
 
-Keep the old Worker intact for the rollback window. Before cutover, rollback is
-the same `PUT` with `OLD_WEBHOOK_URL` and `is_active: true`. After cutover,
-pause senders again, deactivate the same subscription at `NEW_WEBHOOK_URL`,
-drain and prove the new Worker exactly as above, then update the same
-subscription to `OLD_WEBHOOK_URL` with `is_active: true` and run a canary.
-Never create a second subscription for rollback. Retire the old Worker only
-after the rollback window, the saved drain evidence, and the old Worker's
-continued zero-ingress observation all pass.
+Keep the old URL, runtime, and all old Durable Object state available for at
+least Relay's documented maximum webhook retry horizon measured from the
+successful `PUT`. The locked v1 contract does not publish that horizon. Unless
+Relay supplies an authoritative horizon for this subscription, retain the old
+runtime indefinitely; do not infer one from logs or counters and do not claim a
+drained queue. Retirement after a supplied horizon is a retention policy, not
+proof that a queue was empty.
+
+Rollback uses the same active subscription and the same three-field `PUT`, with
+`target_url` set to `OLD_WEBHOOK_URL` and `is_active: true`. Do not deactivate
+or create a second subscription. Because deliveries already pending for the new
+URL are equally unknowable, retain the new Worker and its state for the same
+documented horizon after rollback. The identical Message idempotency boundary
+must remain enabled on both sides for the entire overlap.
 
 ## Replace the model
 
@@ -268,8 +264,12 @@ npm run deploy:production
 `deploy:staging` requires environment `staging`, branch `staging`, and the
 `relay-think-agent-starter-staging` Worker. `deploy:production` requires
 environment `production`, branch `main`, and the
-`relay-think-agent-starter` Worker. Both refuse a dirty tree or a local commit
-that is not exactly its `origin` branch.
+`relay-think-agent-starter` Worker. Both disable interactive Git prompts, fetch
+the exact `refs/heads/<branch>` from the configured `origin` into an isolated
+verification ref, suppress fetch diagnostics that could expose a credentialed
+remote URL, and compare the fetched commit to one final clean branch/HEAD
+snapshot immediately before Wrangler starts. Mutable or stale local
+`origin/*` refs are never trusted.
 
 Wrangler bindings and vars do not inherit into named environments, so the
 default, staging, and production configurations each declare their complete

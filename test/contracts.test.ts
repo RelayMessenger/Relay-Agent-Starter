@@ -173,20 +173,26 @@ describe("locked runtime contracts", () => {
     expect(guard).toMatch(/process\.argv\.length !== 3/u);
     expect(guard).toMatch(/production: \{\s+branch: "main"/u);
     expect(guard).toMatch(/staging: \{\s+branch: "staging"/u);
+    expect(guard).toMatch(/remote: "origin"/u);
     expect(guard).toMatch(/config\.env\?\.\[environment\]\?\.name/u);
     expect(guard).toMatch(/CLOUDFLARE_ENV !== environment/u);
-    expect(guard).toMatch(/branch !== target\.branch/u);
-    expect(guard).toMatch(/status", "--porcelain/u);
-    expect(guard).toMatch(/origin\/\$\{target\.branch\}/u);
-    expect(guard).toMatch(/head !== remote/u);
+    expect(guard).toMatch(/GIT_TERMINAL_PROMPT: "0"/u);
+    expect(guard).toMatch(/"--no-write-fetch-head"/u);
     expect(guard).toMatch(
-      /"deploy",\s+"--env",\s+environment,/u,
+      /`refs\/heads\/\$\{target\.branch\}:\$\{verificationRef\}`/u,
+    );
+    expect(guard).toMatch(/"--porcelain=v2"/u);
+    expect(guard).toMatch(/finalState\.oid !== fetched/u);
+    expect(guard).not.toMatch(/refs\/remotes\/|`origin\/\$\{/u);
+    expect(guard).toMatch(
+      /"deploy",\s+"--config",[\s\S]*"--env",\s+environment,/u,
     );
   });
 
-  it("documents the locked update operation and an evidence-safe drain order", () => {
+  it("documents the locked update operation and an honest idempotent overlap", () => {
     const readme = readFileSync("README.md", "utf8");
     const openapi = readFileSync("contracts/relay-openapi.yaml", "utf8");
+    const reply = readFileSync("src/reply.ts", "utf8");
     const updatePath = openapi.indexOf(
       "  /v1/webhook-subscriptions/{subscriptionId}:",
     );
@@ -229,20 +235,41 @@ describe("locked runtime contracts", () => {
     expect(migration).toContain(
       '"subscribed_events": ["message.received"]',
     );
-
-    const stop = migration.indexOf('"is_active": false');
-    const drain = migration.indexOf("Now drain the old Worker");
-    const cutover = migration.indexOf('"target_url": "$NEW_WEBHOOK_URL"');
-    const retire = migration.indexOf("Retire the old Worker only");
-    expect(stop).toBeGreaterThanOrEqual(0);
-    expect(drain).toBeGreaterThan(stop);
-    expect(cutover).toBeGreaterThan(drain);
-    expect(retire).toBeGreaterThan(cutover);
+    expect(migration).toContain('"is_active": true');
+    expect(migration).not.toContain('"is_active": false');
+    expect(migration).not.toContain("Now drain the old Worker");
     expect(migration).toContain(
-      "does not promise that events are buffered while",
+      "no pending-delivery queue, delivery",
     );
     expect(migration).toContain(
-      "Never create a second subscription for rollback.",
+      "it is not a cross-Worker event lock",
+    );
+    expect(migration).toContain(
+      "`relay-agent-starter:<inbound-message-id>`",
+    );
+    expect(migration).toContain(
+      "documented maximum webhook retry horizon",
+    );
+    expect(migration).toContain(
+      "retain the old\nruntime indefinitely",
+    );
+    expect(migration).toContain(
+      "Retirement after a supplied horizon is a retention policy, not",
+    );
+    expect(migration).toContain(
+      "retain the new Worker and its state for the same",
+    );
+    expect(reply).toContain(
+      "return `relay-agent-starter:${messageId}`",
+    );
+    expect(reply).toContain(
+      "idempotencyKey: () => `message:${deps.turn().messageId}`",
+    );
+    expect(openapi).toContain(
+      "The same authenticated sender, key, and Message body return the original",
+    );
+    expect(openapi).toContain(
+      "Message. Reusing the key with a different body returns a conflict.",
     );
   });
 
