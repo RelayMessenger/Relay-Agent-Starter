@@ -231,7 +231,10 @@ describe("locked runtime contracts", () => {
     expect(migration).not.toMatch(
       /-X POST[\s\S]*\/v1\/webhook-subscriptions/u,
     );
-    expect(migration).toContain('"target_url": "$OLD_WEBHOOK_URL"');
+    expect(migration).toContain('"target_url": "$NEW_WEBHOOK_URL"');
+    expect(migration).toContain(
+      "`target_url` set to `OLD_WEBHOOK_URL`",
+    );
     expect(migration).toContain(
       '"subscribed_events": ["message.received"]',
     );
