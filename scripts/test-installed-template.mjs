@@ -2,12 +2,10 @@ import { execFileSync } from "node:child_process";
 import {
   cpSync,
   mkdtempSync,
-  readFileSync,
   rmSync,
-  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join, relative, resolve } from "node:path";
+import { basename, join, relative } from "node:path";
 
 const source = process.cwd();
 const temporary = mkdtempSync(join(tmpdir(), "relay-agent-starter-"));
@@ -36,24 +34,7 @@ function run(command, args) {
 
 try {
   cpSync(source, installed, { filter: include, recursive: true });
-  const adapterTarball = process.env.RELAY_ADAPTER_TARBALL;
-  if (adapterTarball) {
-    const absoluteTarball = resolve(adapterTarball);
-    const manifestPath = join(installed, "package.json");
-    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-    manifest.dependencies["@relaymessenger/chat-sdk-adapter"] =
-      `file:${absoluteTarball}`;
-    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-    rmSync(join(installed, "package-lock.json"), { force: true });
-    run("npm", [
-      "install",
-      "--ignore-scripts",
-      "--no-audit",
-      "--no-fund",
-    ]);
-  } else {
-    run("npm", ["ci", "--ignore-scripts", "--no-audit", "--no-fund"]);
-  }
+  run("npm", ["ci", "--ignore-scripts", "--no-audit", "--no-fund"]);
 
   run("npm", ["run", "types"]);
   run("npm", ["run", "types:check"]);

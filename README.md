@@ -7,7 +7,7 @@ It uses:
 
 - `@cloudflare/think@0.17.0` and native durable recovery;
 - `chatSdkMessenger()` with Relay's official Chat SDK adapter;
-- one Think thread conversation per Relay Chat;
+- one root Think conversation per Relay Chat;
 - signed Standard Webhooks ingress at `POST /webhooks/relay`;
 - direct-message replies and canonical structured mentions in groups;
 - one buffered, idempotent Relay Message per model turn.
@@ -21,7 +21,8 @@ Relay packages own webhook verification and API calls.
 
 1. Relay sends a signed `message.received` webhook.
 2. `@relaymessenger/chat-sdk-adapter` verifies the exact raw body before parsing.
-3. Think maps `relay:<Chat UUID>` to one durable thread conversation.
+3. After verification, the Worker routes the Chat UUID to one durable root
+   Think conversation. The adapter verifies the forwarded raw body again.
 4. Direct Messages start turns. Group Messages start turns only when a text
    part's structured `mention` matches the receiving Chat's `owner_handle`.
 5. Think runs the model in a recoverable fiber. The model must call the native
@@ -34,6 +35,11 @@ Think's streamed response surface is intentionally limited to zero visible
 characters. Relay therefore never receives a draft or a second fallback
 Message; only the complete Action payload is committed.
 
+If an isolate dies after Relay commits the Message but before Think settles the
+Action ledger row, Think reclaims that pending Action after a bounded five-minute
+lease. The retry uses the same Relay idempotency key and body, so Relay replays
+the existing Message instead of creating a duplicate.
+
 ## Prerequisites
 
 - Node.js 22.22.3 or newer
@@ -41,18 +47,16 @@ Message; only the complete Action payload is committed.
 - a staging agent and Agent Token from Relay Console
 
 The adapter release used by this staging branch is
-`@relaymessenger/chat-sdk-adapter@0.3.0-staging.0`. Until that version is
-published, repository development uses a tarball built from the coordinated
-`Relay-Chat-SDK` source checkout at
-`f90e312aeecefa9c929398a56be77441e8c2137c`. Forks should install the published
-version.
+`@relaymessenger/chat-sdk-adapter@0.3.0-staging.0`, published to npm with
+provenance from the coordinated `Relay-Chat-SDK` source checkout at
+`f90e312aeecefa9c929398a56be77441e8c2137c`.
 
 ## Local setup
 
-Install exact dependencies:
+Install the exact registry artifacts from `package-lock.json`:
 
 ```sh
-npm install
+npm ci
 ```
 
 Copy the local secret template:
@@ -140,9 +144,9 @@ npm run test:installed
 npm run dry-run
 ```
 
-The suites cover the contract lock, dependency pins, model seam, canonical SDK
-request, Think messenger mapping, signed workerd ingress, group mention gate,
-and a clean installed-template build.
+The suites cover the contract lock, dependency pins, model seam, signed direct
+and mentioned-group model/Action turns, unmentioned-group gating, stale Action
+recovery without duplicate delivery, and a clean registry-installed template.
 
 ## Guarded staging deploy example
 

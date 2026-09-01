@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "relay-agent-starter-workerd-tests",
-  "main": "src/index.ts",
+  "main": "test/workerd/harness.ts",
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat"],
   "durable_objects": {

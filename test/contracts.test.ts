@@ -51,21 +51,10 @@ describe("locked runtime contracts", () => {
       lock.packages?.["node_modules/@relaymessenger/chat-sdk-adapter"];
     expect(adapter).toMatchObject({
       integrity: RELAY_ADAPTER_INTEGRITY,
+      resolved:
+        "https://registry.npmjs.org/@relaymessenger/chat-sdk-adapter/-/chat-sdk-adapter-0.3.0-staging.0.tgz",
       version: "0.3.0-staging.0",
     });
-    const manifest = JSON.parse(
-      readFileSync("package.json", "utf8"),
-    ) as { dependencies?: Record<string, string> };
-    if (
-      manifest.dependencies?.["@relaymessenger/chat-sdk-adapter"]
-        === "0.3.0-staging.0"
-    ) {
-      expect(adapter?.resolved).toBe(
-        "https://registry.npmjs.org/@relaymessenger/chat-sdk-adapter/-/chat-sdk-adapter-0.3.0-staging.0.tgz",
-      );
-    } else {
-      expect(adapter?.resolved).toMatch(/^file:/u);
-    }
   });
 
   it("identifies the public starter repository exactly", () => {
@@ -86,6 +75,19 @@ describe("locked runtime contracts", () => {
     expect(guard).toMatch(/status", "--porcelain/u);
     expect(guard).toMatch(/origin\/\$\{expected\}/u);
     expect(guard).toMatch(/head !== remote/u);
+  });
+
+  it("pins CI Actions and prevents checkout credential persistence", () => {
+    const workflow = readFileSync(".github/workflows/ci.yml", "utf8");
+    expect(workflow).toMatch(/\npermissions:\n  contents: read\n/u);
+    expect(workflow).toContain(
+      "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+    );
+    expect(workflow).toContain(
+      "actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38",
+    );
+    expect(workflow).toMatch(/persist-credentials: false/u);
+    expect(workflow).not.toMatch(/uses: actions\/[^@\n]+@v\d/u);
   });
 
   it("binds but does not migrate Think's facet-only test state class", () => {
@@ -127,7 +129,10 @@ describe("locked runtime contracts", () => {
     expect(source).toMatch(/chatSdkMessenger\(/u);
     expect(source).toMatch(/extends Think<Bindings>/u);
     expect(source).toMatch(
-      /actionLedgerPendingRetryLeaseMs[^=]*= false/u,
+      /ACTION_RETRY_LEASE_MS = 5 \* 60 \* 1_000/u,
+    );
+    expect(source).toMatch(
+      /actionLedgerPendingRetryLeaseMs = ACTION_RETRY_LEASE_MS/u,
     );
   });
 });

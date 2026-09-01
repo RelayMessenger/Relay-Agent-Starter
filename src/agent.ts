@@ -30,6 +30,7 @@ import {
 export { ThinkMessengerStateAgent };
 
 const RELAY_WEBHOOK_PATH = "/webhooks/relay";
+const ACTION_RETRY_LEASE_MS = 5 * 60 * 1_000;
 const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
@@ -50,7 +51,8 @@ export function createRelayMessenger(env: Bindings) {
       supportsActions: false,
       supportsAttachments: true,
     },
-    conversation: "thread",
+    // The Worker routes each signed Relay Chat to its own root Think instance.
+    conversation: "self",
     delivery: {
       emptyResponseText: "",
       errorResponseText: "",
@@ -70,7 +72,7 @@ export function createRelayMessenger(env: Bindings) {
 }
 
 export class RelayChatAgent extends Think<Bindings> {
-  override actionLedgerPendingRetryLeaseMs: number | false = false;
+  override actionLedgerPendingRetryLeaseMs = ACTION_RETRY_LEASE_MS;
   override chatRecovery = {
     maxAttempts: 6,
     terminalMessage: "",

@@ -18,6 +18,7 @@ import {
   relayReplyIdempotencyKey,
   sendRelayReply,
 } from "../../src/reply";
+import { TEST_REPLY_TEXT } from "./harness";
 
 const WEBHOOK_SECRET = "test-secret";
 const EVENT_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec11";
@@ -26,6 +27,21 @@ const CHAT_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec13";
 const MESSAGE_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec14";
 const USER_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec15";
 const REPLY_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec16";
+const DIRECT_CHAT_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec20";
+const DIRECT_MESSAGE_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec21";
+const DIRECT_EVENT_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec22";
+const DIRECT_REPLY_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec23";
+const GROUP_CHAT_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec30";
+const GROUP_MESSAGE_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec31";
+const GROUP_EVENT_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec32";
+const GROUP_REPLY_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec33";
+const QUIET_CHAT_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec40";
+const QUIET_MESSAGE_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec41";
+const QUIET_EVENT_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec42";
+const RECOVERY_CHAT_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec50";
+const RECOVERY_MESSAGE_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec51";
+const RECOVERY_EVENT_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec52";
+const RECOVERY_REPLY_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec53";
 
 function base64(bytes: ArrayBuffer): string {
   return btoa(String.fromCharCode(...new Uint8Array(bytes)));
@@ -36,6 +52,10 @@ async function signedRequest(
   tamper = false,
 ): Promise<Request> {
   const body = JSON.stringify(event);
+  const eventId = event.event_id;
+  if (typeof eventId !== "string") {
+    throw new Error("Signed test event requires event_id");
+  }
   const timestamp = Math.floor(Date.now() / 1_000).toString();
   const key = await crypto.subtle.importKey(
     "raw",
@@ -47,13 +67,13 @@ async function signedRequest(
   const signature = await crypto.subtle.sign(
     "HMAC",
     key,
-    new TextEncoder().encode(`${EVENT_ID}.${timestamp}.${body}`),
+    new TextEncoder().encode(`${eventId}.${timestamp}.${body}`),
   );
   return new Request("https://starter.example/webhooks/relay", {
     body: tamper ? `${body} ` : body,
     headers: {
       "content-type": "application/json",
-      "webhook-id": EVENT_ID,
+      "webhook-id": eventId,
       "webhook-signature": `v1,${base64(signature)}`,
       "webhook-timestamp": timestamp,
     },
@@ -62,6 +82,7 @@ async function signedRequest(
 }
 
 function envelope(
+  eventId: string,
   eventType: string,
   data: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -70,7 +91,7 @@ function envelope(
     api_version: "v1",
     created_at: "2026-09-01T12:00:00.000Z",
     data,
-    event_id: EVENT_ID,
+    event_id: eventId,
     event_type: eventType,
     trace_id: "starter-workerd-test",
     webhook_version: "2026-08-30",
@@ -88,6 +109,150 @@ function handle(id: string, handleName: string) {
     tagline: null,
     verified: false,
   };
+}
+
+function messageEnvelope(input: {
+  chatId: string;
+  eventId: string;
+  isGroup: boolean;
+  mentioned: boolean;
+  messageId: string;
+}): Record<string, unknown> {
+  const parts = input.mentioned
+    ? [{
+        mention: "starter_test",
+        mention_range: [0, "starter_test".length],
+        type: "text",
+        value: "@starter_test please reply",
+      }]
+    : [{ type: "text", value: "please reply" }];
+  return envelope(input.eventId, "message.received", {
+    chat: {
+      id: input.chatId,
+      is_group: input.isGroup,
+      owner_handle: {
+        ...handle(AGENT_ID, "starter_test"),
+        kind: "agent",
+      },
+    },
+    direction: "inbound",
+    id: input.messageId,
+    parts,
+    sender_handle: handle(USER_ID, "relay_user"),
+  });
+}
+
+interface RelayRequest {
+  body: string;
+  headers: Headers;
+  method: string;
+  pathname: string;
+}
+
+interface CommittedRelayMessage {
+  body: string;
+  messageId: string;
+}
+
+function expectedReplyBody(messageId: string) {
+  const key = relayReplyIdempotencyKey(messageId);
+  return {
+    message: {
+      idempotency_key: key,
+      parts: [{ type: "text", value: TEST_REPLY_TEXT }],
+    },
+  };
+}
+
+function installRelayBackend(input: {
+  chatId: string;
+  precommitted?: {
+    body: ReturnType<typeof expectedReplyBody>;
+    key: string;
+    messageId: string;
+  };
+  replyId: string;
+}) {
+  const calls: RelayRequest[] = [];
+  const committed = new Map<string, CommittedRelayMessage>();
+  let newCommits = 0;
+  if (input.precommitted) {
+    committed.set(input.precommitted.key, {
+      body: JSON.stringify(input.precommitted.body),
+      messageId: input.precommitted.messageId,
+    });
+  }
+
+  const fetchMock = vi.fn(async (
+    requestInput: RequestInfo | URL,
+    init?: RequestInit,
+  ) => {
+    const request = new Request(requestInput, init);
+    const body = await request.clone().text();
+    const pathname = new URL(request.url).pathname;
+    calls.push({
+      body,
+      headers: new Headers(request.headers),
+      method: request.method,
+      pathname,
+    });
+
+    if (
+      pathname === `/v1/chats/${input.chatId}/read`
+      && request.method === "POST"
+    ) {
+      return new Response(null, { status: 204 });
+    }
+    if (
+      pathname === `/v1/chats/${input.chatId}/messages`
+      && request.method === "POST"
+    ) {
+      const key = request.headers.get("idempotency-key");
+      if (!key) throw new Error("Relay send omitted Idempotency-Key");
+      const previous = committed.get(key);
+      if (previous) {
+        if (previous.body !== body) {
+          return Response.json({
+            error: { code: "idempotency_conflict" },
+          }, { status: 409 });
+        }
+        return Response.json({
+          chat_id: input.chatId,
+          message: { id: previous.messageId },
+        }, { status: 202 });
+      }
+      newCommits += 1;
+      committed.set(key, { body, messageId: input.replyId });
+      return Response.json({
+        chat_id: input.chatId,
+        message: { id: input.replyId },
+      }, { status: 202 });
+    }
+    throw new Error(`Unexpected Relay request: ${request.method} ${pathname}`);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return {
+    calls,
+    committed,
+    fetchMock,
+    newCommits: () => newCommits,
+  };
+}
+
+function expectCanonicalTurn(
+  calls: RelayRequest[],
+  chatId: string,
+  messageId: string,
+): void {
+  expect(calls.map(({ method, pathname }) => [method, pathname])).toEqual([
+    ["POST", `/v1/chats/${chatId}/read`],
+    ["POST", `/v1/chats/${chatId}/messages`],
+  ]);
+  const send = calls[1]!;
+  const key = relayReplyIdempotencyKey(messageId);
+  expect(send.headers.get("authorization")).toBe("Bearer relay-test-token");
+  expect(send.headers.get("idempotency-key")).toBe(key);
+  expect(JSON.parse(send.body)).toEqual(expectedReplyBody(messageId));
 }
 
 function bindings(): Bindings {
@@ -108,11 +273,11 @@ afterEach(() => {
 });
 
 describe("Relay Think messenger", () => {
-  it("maps one Relay Chat to one Think thread conversation", () => {
+  it("uses the Worker-routed root Think conversation", () => {
     const messenger = createRelayMessenger(bindings());
     expect(messenger).toMatchObject({
       adapterName: "relay",
-      conversation: "thread",
+      conversation: "self",
       path: "/webhooks/relay",
       provider: "relay",
       respondTo: ["direct-message", "mention"],
@@ -200,6 +365,116 @@ describe("canonical Relay delivery", () => {
   });
 });
 
+describe("signed messenger turns", () => {
+  it("runs Read, model, reply Action, and one Message for a direct Chat", async () => {
+    const relay = installRelayBackend({
+      chatId: DIRECT_CHAT_ID,
+      replyId: DIRECT_REPLY_ID,
+    });
+    const response = await SELF.fetch(
+      await signedRequest(messageEnvelope({
+        chatId: DIRECT_CHAT_ID,
+        eventId: DIRECT_EVENT_ID,
+        isGroup: false,
+        mentioned: false,
+        messageId: DIRECT_MESSAGE_ID,
+      })),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      acknowledged: true,
+      event_id: DIRECT_EVENT_ID,
+      event_type: "message.received",
+    });
+    expectCanonicalTurn(relay.calls, DIRECT_CHAT_ID, DIRECT_MESSAGE_ID);
+    expect(relay.committed.size).toBe(1);
+    expect(relay.newCommits()).toBe(1);
+  });
+
+  it("runs the same canonical turn for a structured group mention", async () => {
+    const relay = installRelayBackend({
+      chatId: GROUP_CHAT_ID,
+      replyId: GROUP_REPLY_ID,
+    });
+    const response = await SELF.fetch(
+      await signedRequest(messageEnvelope({
+        chatId: GROUP_CHAT_ID,
+        eventId: GROUP_EVENT_ID,
+        isGroup: true,
+        mentioned: true,
+        messageId: GROUP_MESSAGE_ID,
+      })),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      acknowledged: true,
+      event_id: GROUP_EVENT_ID,
+      event_type: "message.received",
+    });
+    expectCanonicalTurn(relay.calls, GROUP_CHAT_ID, GROUP_MESSAGE_ID);
+    expect(relay.committed.size).toBe(1);
+    expect(relay.newCommits()).toBe(1);
+  });
+
+  it("reclaims a stale Action claim and replays the committed Message", async () => {
+    const threadId = `relay:${RECOVERY_CHAT_ID}`;
+    const key = relayReplyIdempotencyKey(RECOVERY_MESSAGE_ID);
+    const relay = installRelayBackend({
+      chatId: RECOVERY_CHAT_ID,
+      precommitted: {
+        body: expectedReplyBody(RECOVERY_MESSAGE_ID),
+        key,
+        messageId: RECOVERY_REPLY_ID,
+      },
+      replyId: RECOVERY_REPLY_ID,
+    });
+    const seeded = await SELF.fetch(
+      new Request("https://starter.example/__test/action-ledger", {
+        body: JSON.stringify({
+          messageId: RECOVERY_MESSAGE_ID,
+          text: TEST_REPLY_TEXT,
+          threadId,
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }),
+    );
+    expect(seeded.status).toBe(204);
+
+    const response = await SELF.fetch(
+      await signedRequest(messageEnvelope({
+        chatId: RECOVERY_CHAT_ID,
+        eventId: RECOVERY_EVENT_ID,
+        isGroup: false,
+        mentioned: false,
+        messageId: RECOVERY_MESSAGE_ID,
+      })),
+    );
+    expect(response.status).toBe(200);
+    expectCanonicalTurn(relay.calls, RECOVERY_CHAT_ID, RECOVERY_MESSAGE_ID);
+    expect(relay.newCommits()).toBe(0);
+    expect(relay.committed).toEqual(new Map([
+      [key, {
+        body: JSON.stringify(expectedReplyBody(RECOVERY_MESSAGE_ID)),
+        messageId: RECOVERY_REPLY_ID,
+      }],
+    ]));
+
+    const ledger = await SELF.fetch(
+      `https://starter.example/__test/action-ledger?threadId=${encodeURIComponent(threadId)}`,
+    );
+    expect(ledger.status).toBe(200);
+    expect(await ledger.json()).toMatchObject({
+      rows: [{
+        key: `action:reply:message:${RECOVERY_MESSAGE_ID}`,
+        status: "settled",
+      }],
+    });
+  });
+});
+
 describe("installed Worker", () => {
   it("reports a configured health route without exposing secrets", async () => {
     const response = await SELF.fetch("https://starter.example/healthz");
@@ -211,14 +486,14 @@ describe("installed Worker", () => {
 
   it("rejects a body changed after signing", async () => {
     const response = await SELF.fetch(
-      await signedRequest(envelope("chat.created", {}), true),
+      await signedRequest(envelope(EVENT_ID, "chat.created", {}), true),
     );
     expect(response.status).toBe(401);
   });
 
   it("acknowledges a signed current event through the Relay adapter", async () => {
     const response = await SELF.fetch(
-      await signedRequest(envelope("chat.created", {})),
+      await signedRequest(envelope(EVENT_ID, "chat.created", {})),
     );
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
@@ -229,20 +504,17 @@ describe("installed Worker", () => {
   });
 
   it("acknowledges but does not invoke an unmentioned group Message", async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new Error("Unmentioned group Message started a turn");
+    });
+    vi.stubGlobal("fetch", fetchMock);
     const response = await SELF.fetch(
-      await signedRequest(envelope("message.received", {
-        chat: {
-          id: CHAT_ID,
-          is_group: true,
-          owner_handle: {
-            ...handle(AGENT_ID, "starter_test"),
-            kind: "agent",
-          },
-        },
-        direction: "inbound",
-        id: MESSAGE_ID,
-        parts: [{ type: "text", value: "hello group" }],
-        sender_handle: handle(USER_ID, "relay_user"),
+      await signedRequest(messageEnvelope({
+        chatId: QUIET_CHAT_ID,
+        eventId: QUIET_EVENT_ID,
+        isGroup: true,
+        mentioned: false,
+        messageId: QUIET_MESSAGE_ID,
       })),
     );
     expect(response.status).toBe(200);
@@ -250,5 +522,6 @@ describe("installed Worker", () => {
       acknowledged: true,
       event_type: "message.received",
     });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
