@@ -43,8 +43,8 @@
   },
   "dependencies": {
     "@cloudflare/think": "0.17.0",
-    "@relaymessenger/chat-sdk-adapter": "0.3.0-staging.0",
-    "@relaymessenger/sdk": "0.3.0-staging.4",
+    "@relaymessenger/chat-sdk-adapter": "0.3.2-staging.0",
+    "@relaymessenger/sdk": "0.3.1-staging.2",
     "agents": "0.22.0",
     "ai": "7.0.66",
     "chat": "4.39.0",

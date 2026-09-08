@@ -28,7 +28,7 @@ Relay packages own webhook verification and API calls.
 5. Think runs the model in a recoverable fiber. The model must call the native
    `reply` Action once.
 6. The Action commits one complete Message through
-   `@relaymessenger/sdk@0.3.0-staging.4`. Its stable idempotency key is derived
+   `@relaymessenger/sdk@0.3.1-staging.2`. Its stable idempotency key is derived
    from the inbound Relay Message ID.
 
 Think's streamed response surface is intentionally limited to zero visible
@@ -47,10 +47,11 @@ Message instead of creating a duplicate.
 - a staging agent and Agent Token from Relay Console
 
 The adapter release used by this staging branch is
-`@relaymessenger/chat-sdk-adapter@0.3.0-staging.0`, published to npm with
-provenance from `Relay-Chat-SDK`
-`469a9c1aafed7e31cdc4e8581df4dd6a34c94e17`. Its runtime implementation was
-independently audited at `f90e312aeecefa9c929398a56be77441e8c2137c`.
+`@relaymessenger/chat-sdk-adapter@0.3.2-staging.0`, versioned and published
+to npm from `Relay-SDK` `aac334c5081de6e6498963908c3965c843ebc1cf`. An earlier
+revision of its runtime implementation was independently audited at
+`f90e312aeecefa9c929398a56be77441e8c2137c`; the releases since then have not
+been re-audited.
 
 ## Local setup
 
@@ -283,12 +284,12 @@ Run neither guarded command without your own review and credentials.
 
 This revision is tested against:
 
-- Relay Server `9b4d5bb32cc749c6fd271969948c385300d404d6`
-- Relay Chat SDK `f90e312aeecefa9c929398a56be77441e8c2137c`
-- `@relaymessenger/chat-sdk-adapter@0.3.0-staging.0` npm integrity
-  `sha512-IuWa2VVv3hKArnQPO6SV4Ntq+/9pp7eEIzWgVSBgg6E5pWpVV+hxTFCwfwwBJvmhYjzVgOFxrrk6haL05ANquw==`
+- Relay Server `99906995625ddc00348064a585ada1649313b0fc`
+- Relay Chat SDK `aac334c5081de6e6498963908c3965c843ebc1cf`
+- `@relaymessenger/chat-sdk-adapter@0.3.2-staging.0` npm integrity
+  `sha512-g12qLaFH1RLrBPcBtjpIHOB/OzwNB18mgxoSO5a3OBhEubHtxgGB5c14vtF+TUetHNDewLaKFiwciFpZJ6Lq2A==`
 - OpenAPI SHA-256
-  `f62f431fc0daa48500926bf87753f81c3fdda25ab463b130ca97f2896367e0a5`
+  `7094178cb01c0ddc05f9254dc91094900a0a7b6273979c0cad6257eec486f0d8`
 - Relay API `v1`
 - Relay webhook payload version `2026-08-30`
 
