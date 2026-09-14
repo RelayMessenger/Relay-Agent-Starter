@@ -7,11 +7,11 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const RELAY_SERVER_SHA =
-  "99906995625ddc00348064a585ada1649313b0fc";
+  "d4dc62372194bf929801229740346cdacfe2d5c9";
 const RELAY_CHAT_SDK_SHA =
   "aac334c5081de6e6498963908c3965c843ebc1cf";
 const RELAY_OPENAPI_SHA256 =
-  "7094178cb01c0ddc05f9254dc91094900a0a7b6273979c0cad6257eec486f0d8";
+  "81d23529476ae77b3b7f7dfc931d2e0e421d3c91e20c59136e2deef9123f722e";
 const RELAY_ADAPTER_INTEGRITY =
   "sha512-g12qLaFH1RLrBPcBtjpIHOB/OzwNB18mgxoSO5a3OBhEubHtxgGB5c14vtF+TUetHNDewLaKFiwciFpZJ6Lq2A==";
 
@@ -28,6 +28,14 @@ describe("locked runtime contracts", () => {
     const openapi = readFileSync("contracts/relay-openapi.yaml");
     expect(createHash("sha256").update(openapi).digest("hex"))
       .toBe(RELAY_OPENAPI_SHA256);
+  });
+
+  it("does not advertise anonymous Agent registration", () => {
+    const openapi = readFileSync("contracts/relay-openapi.yaml", "utf8");
+    const agentPath = openapi.match(
+      /^  \/v1\/agents:\r?\n((?:(?: {4}.*|[ \t]*)\r?\n)*)/mu,
+    )?.[1] ?? "";
+    expect(agentPath).not.toMatch(/^    post:/mu);
   });
 
   it("pins the coordinated Think and Relay packages", () => {
