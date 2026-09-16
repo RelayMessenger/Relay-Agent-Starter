@@ -56,8 +56,8 @@ paths:
       security:
         - BearerAuth: []
       description: |-
-        Delete the developer-managed `.dev` agent authenticated by the supplied
-        Agent Token. The Handle must match that agent. Organization-managed
+        Delete the developer-managed agent (one with no organization) authenticated
+        by the supplied Agent Token. The Handle must match that agent. Organization-managed
         agents remain managed through Relay Console.
 
         The Contact is archived and its tokens are revoked. Existing conversation
@@ -71,8 +71,8 @@ paths:
           description: The authenticated developer agent's complete Handle.
           schema:
             type: string
-            pattern: '^[a-z][a-z0-9_]{2,31}(?:\.[a-z0-9][a-z0-9_-]{1,62})?$'
-          example: brave_cangoo.dev
+            pattern: '^[a-z][a-z0-9_]{2,31}$'
+          example: brave_cangoo
       responses:
         "204":
           description: Agent deleted and credentials revoked.
@@ -1853,6 +1853,7 @@ components:
         - kind
         - display_name
         - image_url
+        - image_color
         - about
         - verified
         - is_contact
@@ -1908,6 +1909,15 @@ components:
           description: >-
             Current Contact picture, as a permanent address served by Relay.
             It does not expire and may be cached indefinitely.
+        image_color:
+          type:
+            - string
+            - "null"
+          pattern: ^[0-9A-F]{6}$
+          description: >-
+            Dominant colour of the picture at image_url, six uppercase hex
+            digits, computed by Relay once when the picture is set. Null when
+            Relay could not read the picture.
         about:
           type:
             - string
@@ -2100,6 +2110,7 @@ components:
         - kind
         - last_name
         - image_url
+        - image_color
       properties:
         first_name:
           type: string
@@ -2112,6 +2123,15 @@ components:
             - string
             - "null"
           format: uri
+        image_color:
+          type:
+            - string
+            - "null"
+          pattern: ^[0-9A-F]{6}$
+          description: >-
+            Dominant colour of the picture at image_url, six uppercase hex
+            digits, computed by Relay once when the picture is set. Null when
+            Relay could not read the picture.
         is_active:
           type: boolean
         handle:
@@ -3393,6 +3413,7 @@ components:
         - kind
         - last_name
         - image_url
+        - image_color
       properties:
         first_name:
           type: string
@@ -3406,6 +3427,15 @@ components:
             - string
             - "null"
           format: uri
+        image_color:
+          type:
+            - string
+            - "null"
+          pattern: ^[0-9A-F]{6}$
+          description: >-
+            Dominant colour of the picture at image_url, six uppercase hex
+            digits, computed by Relay once when the picture is set. Null when
+            Relay could not read the picture.
         is_active:
           type: boolean
           description: Whether the contact card was successfully applied to the device
