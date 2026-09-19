@@ -284,12 +284,12 @@ Run neither guarded command without your own review and credentials.
 
 This revision is tested against:
 
-- Relay Server `55e12f23fdb559e23e54e4f386a77fd397293834`
+- Relay Server `eb83978b6b2c625da82471e4af16acad8de0e618`
 - Relay Chat SDK `aac334c5081de6e6498963908c3965c843ebc1cf`
 - `@relaymessenger/chat-sdk-adapter@0.3.2-staging.0` npm integrity
   `sha512-g12qLaFH1RLrBPcBtjpIHOB/OzwNB18mgxoSO5a3OBhEubHtxgGB5c14vtF+TUetHNDewLaKFiwciFpZJ6Lq2A==`
 - OpenAPI SHA-256
-  `de33237b05b09414c1994446f746795ab8bf410cb2c8f1422259103775cfc182`
+  `27698655d12500fb9cd2e10dbf1c94025fbc64c288df6151db673a7649877111`
 - Relay API `v1`
 - Relay webhook payload version `2026-08-30`
 
