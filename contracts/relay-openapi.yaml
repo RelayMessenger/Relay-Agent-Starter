@@ -3918,10 +3918,10 @@ components:
             - group_name_updated
             - group_icon_updated
             - contact_card_shared
-            - call_ended
+            - call
           description: >-
-            What happened. For call_ended the actor is the caller, the subject
-            is the callee, and call carries the Call's outcome.
+            What happened. For call the actor is the caller, the subject
+            is the callee, and call carries the Call's live state.
         actor:
           $ref: "#/components/schemas/SystemEventParty"
         subject:
@@ -3945,16 +3945,22 @@ components:
           oneOf:
             - $ref: "#/components/schemas/CallMarker"
             - type: "null"
-          description: The ended Call this event marks. Null unless type is call_ended.
+          description: The Call this event marks. Null unless type is call.
     CallMarker:
       type: object
       additionalProperties: false
       description: >-
-        The outcome of an ended Call, carried by a call_ended system event so a
-        client can draw the call in the chat history.
+        A call in this chat, present from the moment it is placed. The actor is
+        the caller and the subject the callee; read `call.status` (ringing,
+        connecting, active, ended) and `call.end_reason` for its state.
       required:
         - id
         - mode
+        - status
+        - answered_at
+        - ended_at
+        - from
+        - to
         - end_reason
         - connected
         - duration_seconds
@@ -3967,16 +3973,35 @@ components:
           type: string
           enum:
             - audio
-        end_reason:
+        status:
           type: string
           enum:
+            - ringing
+            - active
+            - ended
+        answered_at: *a3
+        ended_at: *a3
+        from:
+          $ref: "#/components/schemas/CallContact"
+        to:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            $ref: "#/components/schemas/CallContact"
+        end_reason:
+          type:
+            - string
+            - "null"
+          enum:
+            - null
             - completed
             - declined
             - canceled
             - no_answer
             - disconnected
             - failed
-          description: Why the Call ended. The same values as Call.end_reason, never null here.
+          description: Why the Call ended. The same values as Call.end_reason, null until it ends.
         connected:
           type: boolean
           description: Whether the Call was answered (answered_at set).
@@ -3987,7 +4012,7 @@ components:
           minimum: 0
           description: >-
             Whole seconds from answered to ended. Null when the Call was
-            never answered.
+            never answered or has not ended.
     SystemEventParty:
       type: object
       additionalProperties: false
