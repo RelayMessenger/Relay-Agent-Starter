@@ -83,6 +83,8 @@ export function eventTypeBody(options) {
     confirmationPolicy: { blockUnconfirmedBookingsInBooker: true, type: "always" },
     description:
       "Catering request for Tania's Pizza. Tania's confirms every request and follows up with a quote.",
+    // Booked only by the Relay agent, not listed on the public Cal.com page.
+    hidden: true,
     lengthInMinutes: options.lengthMinutes,
     minimumBookingNotice: options.minNoticeHours * 60,
     slug: "catering",

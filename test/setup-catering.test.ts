@@ -25,6 +25,7 @@ describe("Cal.com catering setup", () => {
     expect(body.confirmationPolicy).toEqual({ blockUnconfirmedBookingsInBooker: true, type: "always" });
     expect(body.bookingLimitsCount).toEqual({ day: 2 });
     expect(body.minimumBookingNotice).toBe(48 * 60);
+    expect((body as { hidden?: boolean }).hidden).toBe(true);
   });
 
   it("defines a field for every response the agent sends", () => {
