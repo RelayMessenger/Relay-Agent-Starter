@@ -142,7 +142,7 @@ the turn ends when the single `reply` Action commits. The reply's Relay
 idempotency key is `tanias-pizza-agent:<inbound-message-id>`, so a retried
 Action replays the same Message instead of sending a second one. Catering
 decisions use `tanias-pizza-agent:catering:<booking-uid>:<status>`, so Cal.com
-retries are safe. Each turn is capped at 6 model steps, and each person at 20
+retries are safe. Each turn is capped at 10 model steps (typical turns use 1-3), and each person at 20
 messages a minute (Workers Rate Limiting), bounding Tania's inference bill.
 If a turn completes without calling `reply`, the customer gets a short
 fallback (order link and phone) under the same reply idempotency key, so they

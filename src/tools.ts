@@ -24,16 +24,24 @@ export function taniasTools(deps: ToolDependencies): ToolSet {
   return {
     search_menu: tool({
       description:
-        "Search Tania's menu by keywords (item, size, ingredient, category). Returns matching items with price and the orderLink to send the customer.",
+        "Search Tania's menu. Pass every item the customer mentioned in one call, one query per item "
+        + '(e.g. ["14 inch pepperoni", "medium veggie", "bone-in wings"]). Returns matching items with price '
+        + "and the orderLink to send the customer.",
       inputSchema: z.object({
-        query: z.string().trim().min(1).max(200),
+        queries: z.array(z.string().trim().min(1).max(200)).min(1).max(12)
+          .describe("One search per item, size or ingredient the customer asked about"),
       }).strict(),
-      execute: async ({ query }) => {
+      execute: async ({ queries }) => {
         const menu = await deps.menu();
-        const results = searchMenu(menu, query);
-        return results.length > 0
-          ? { results, orderPage: orderUrl(menu) }
-          : { results: [], orderPage: orderUrl(menu), note: "No match. Try other words or list categories." };
+        // Fewer matches per query as the list grows keeps the tool result small.
+        const perQuery = queries.length > 3 ? 4 : 8;
+        const results = queries.map((query) => {
+          const matches = searchMenu(menu, query, perQuery);
+          return matches.length > 0
+            ? { matches, query }
+            : { matches: [], note: "No match. Try other words or list categories.", query };
+        });
+        return { orderPage: orderUrl(menu), results };
       },
     }),
     list_menu_categories: tool({
@@ -50,15 +58,21 @@ export function taniasTools(deps: ToolDependencies): ToolSet {
     }),
     get_item_options: tool({
       description:
-        "Customization options for an item (crusts, sizes, sauces, cheese, toppings) with add-on prices, as shown on the order page.",
+        "Customization options (crusts, sizes, sauces, cheese, toppings) with add-on prices, as shown on the order page. "
+        + "Pass every item you need in one call.",
       inputSchema: z.object({
-        item: z.string().trim().min(1).max(200),
+        items: z.array(z.string().trim().min(1).max(200)).min(1).max(6),
       }).strict(),
-      execute: async ({ item }) => {
-        const options = itemOptions(await deps.menu(), item);
-        return options
-          ? { item: options.item, optionGroups: options.groups }
-          : { item, optionGroups: [], note: "No option details for this item. The order page shows all choices." };
+      execute: async ({ items }) => {
+        const menu = await deps.menu();
+        return {
+          results: items.map((item) => {
+            const options = itemOptions(menu, item);
+            return options
+              ? { item: options.item, optionGroups: options.groups }
+              : { item, note: "No option details for this item. The order page shows all choices.", optionGroups: [] };
+          }),
+        };
       },
     }),
     get_store_status: tool({

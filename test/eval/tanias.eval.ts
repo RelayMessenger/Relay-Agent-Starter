@@ -38,6 +38,33 @@ describe.skipIf(!EVAL_CONFIGURED)(`Tania's agent on ${process.env.EVAL_MODEL ?? 
     expect(text).toMatch(/item-14-deluxe-pizza_/u);
   });
 
+  it("handles a multi-item order and links every item", async () => {
+    const result = await runTurn(
+      say(
+        "I want 2 large build your own pizzas with pepperoni, a medium veggie pizza, a pound of bone-in wings "
+        + "and a large Greek salad. How much is extra pepperoni on the large, and where do I order?",
+      ),
+      { now: OPEN },
+    );
+    const text = sent(result);
+    expect(result.steps).toBeLessThanOrEqual(5);
+    for (const slug of ["item-14-build-your-own-pizza_", "veggie", "wings", "greek"]) {
+      expect(text.toLowerCase(), slug).toContain(slug);
+    }
+    expect(text).toMatch(/2\.25/u);
+  });
+
+  it("answers several questions in one message", async () => {
+    const result = await runTurn(
+      say("Are you open right now, do you deliver to Clawson, and how much is a calzone?"),
+      { now: OPEN },
+    );
+    const text = sent(result).toLowerCase();
+    expect(text).toMatch(/open/u);
+    expect(text).toMatch(/3 miles|three miles/u);
+    expect(text).toMatch(/4\.99/u);
+  });
+
   it("answers a topping price from the item's options", async () => {
     const result = await runTurn(
       say("On a 12 inch build your own pizza, how much extra is pepperoni on the whole pie?"),

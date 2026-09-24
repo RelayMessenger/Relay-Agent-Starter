@@ -152,7 +152,7 @@ function testModel(): MockLanguageModelV3 {
         if (link) {
           return toolCallStream("reply", { text: `Here you go: ${link[1]}` });
         }
-        return toolCallStream("search_menu", { query: "14 deluxe pizza" });
+        return toolCallStream("search_menu", { queries: ["14 deluxe pizza"] });
       }
       return toolCallStream("reply", { text: TEST_REPLY_TEXT });
     },

@@ -1,6 +1,8 @@
-// Enough for a few menu/catering lookups before the single reply; also the
-// hard bound on model calls (and therefore inference cost) per inbound Message.
-export const MAX_STEPS = 6;
+// A ceiling, not a budget: typical turns use 1-3 steps, since search_menu and
+// get_item_options take several items per call. 10 leaves room for retries,
+// multi-date catering and several questions in one message, and still bounds
+// model calls (and therefore Tania's inference cost) per inbound Message.
+export const MAX_STEPS = 10;
 
 interface StepView {
   toolResults: ReadonlyArray<{ toolName: string; output?: unknown }>;
