@@ -46,6 +46,8 @@ function parseArgs(argv) {
     lengthMinutes: 60,
     maxPerDay: 2,
     minNoticeHours: 48,
+    slug: "catering",
+    title: "Catering request",
     webhookSecret: undefined,
     webhookUrl: undefined,
   };
@@ -63,6 +65,9 @@ function parseArgs(argv) {
     else if (flag === "--min-notice-hours") options.minNoticeHours = Number(value());
     else if (flag === "--max-per-day") options.maxPerDay = Number(value());
     else if (flag === "--length-minutes") options.lengthMinutes = Number(value());
+    // A separate event type (e.g. --slug catering-test) keeps staging tests off the real calendar.
+    else if (flag === "--slug") options.slug = value();
+    else if (flag === "--title") options.title = value();
     else throw new Error(`Unknown option ${flag}`);
   }
   for (const [name, number] of Object.entries({
@@ -107,8 +112,8 @@ export function eventTypeBody(options, scheduleId) {
     hidden: true,
     lengthInMinutes: options.lengthMinutes,
     minimumBookingNotice: options.minNoticeHours * 60,
-    slug: "catering",
-    title: "Catering request",
+    slug: options.slug ?? "catering",
+    title: options.title ?? "Catering request",
   };
 }
 

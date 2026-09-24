@@ -65,7 +65,7 @@
         "RELAY_INTERACTIVE_PARTS": "true",
         "RELAY_AGENT_HANDLE": "taniaspizza",
         "RELAY_API_ORIGIN": "https://api.staging.relayapp.im",
-        "CAL_EVENT_TYPE_ID": "7215538",
+        "CAL_EVENT_TYPE_ID": "7216320",
         "TOAST_RESTAURANT_GUID": ""
       },
       "ai": {
@@ -100,7 +100,7 @@
         "RELAY_INTERACTIVE_PARTS": "false",
         "RELAY_AGENT_HANDLE": "taniaspizza",
         "RELAY_API_ORIGIN": "https://api.relayapp.im",
-        "CAL_EVENT_TYPE_ID": "",
+        "CAL_EVENT_TYPE_ID": "7215538",
         "TOAST_RESTAURANT_GUID": ""
       },
       "ai": {
