@@ -1,14 +1,11 @@
 import { action, type Action } from "@cloudflare/think";
-import Relay, { type RequestOptions } from "@relaymessenger/sdk";
-import { z } from "zod";
+import Relay, { indexedIdempotencyKey, type RequestOptions } from "@relaymessenger/sdk";
 
-import { customerText } from "./answer";
+import { composeAnswer, REPLY_DESCRIPTION, replyInputSchema } from "./action-specs";
+import { answerToMessages } from "./answer";
 import type { Bindings, RelayConfiguration } from "./env";
 import { requireRelayToken } from "./env";
 
-const replySchema = z.object({
-  text: z.string().trim().min(1).max(10_000),
-}).strict();
 
 export interface RelayTurnIdentity {
   chatId: string;
@@ -20,11 +17,11 @@ interface ReplyDependencies {
   turn(): RelayTurnIdentity;
 }
 
-type RelaySdkEnvironment = Required<
+export type RelaySdkEnvironment = Required<
   Pick<RelayConfiguration, "RELAY_AGENT_TOKEN" | "RELAY_API_ORIGIN">
->;
+> & { RELAY_INTERACTIVE_PARTS?: string };
 
-function relayClient(env: RelaySdkEnvironment): Relay {
+export function relayClient(env: RelaySdkEnvironment): Relay {
   return new Relay({
     apiKey: requireRelayToken(env),
     baseURL: env.RELAY_API_ORIGIN,
@@ -35,6 +32,11 @@ function relayClient(env: RelaySdkEnvironment): Relay {
 
 function requestOptions(signal?: AbortSignal): RequestOptions {
   return signal ? { signal } : {};
+}
+
+/** Buttons and selection parts are on for this server ("true" in wrangler.jsonc). */
+export function interactiveParts(env: { RELAY_INTERACTIVE_PARTS?: string }): boolean {
+  return env.RELAY_INTERACTIVE_PARTS?.trim() === "true";
 }
 
 export function relayReplyIdempotencyKey(messageId: string): string {
@@ -48,53 +50,51 @@ export async function markRelayChatRead(
   await relayClient(env).chats.markAsRead(chatId);
 }
 
+/**
+ * Sends one answer as the Relay Messages it becomes (words with buttons or a
+ * selection, link cards on their own), in order. The first Message uses the
+ * answer's key and the rest the SDK's indexed keys, so a retried Action or
+ * Worker replays the same Messages instead of adding new ones.
+ */
+export async function sendRelayAnswer(
+  env: RelaySdkEnvironment,
+  chatId: string,
+  answer: string,
+  idempotencyKey: string,
+  signal?: AbortSignal,
+): Promise<{ messageId: string; messageIds: string[]; status: "sent" }> {
+  const plan = answerToMessages(answer, { interactive: interactiveParts(env) });
+  if (plan.notes.length > 0) {
+    console.warn(JSON.stringify({ chat_id: chatId, event: "answer_adjusted", notes: plan.notes }));
+  }
+  const relay = relayClient(env);
+  const messageIds: string[] = [];
+  for (const [index, parts] of plan.messages.entries()) {
+    const key = indexedIdempotencyKey(idempotencyKey, index);
+    const result = await relay.chats.messages.send(
+      chatId,
+      { message: { idempotency_key: key, parts } },
+      requestOptions(signal),
+    );
+    messageIds.push(result.message.id);
+  }
+  return { messageId: messageIds[0]!, messageIds, status: "sent" };
+}
+
 export async function sendRelayReply(
   env: RelaySdkEnvironment,
   turn: RelayTurnIdentity,
-  text: string,
+  answer: string,
   signal?: AbortSignal,
-): Promise<{ messageId: string; status: "sent" }> {
-  return sendRelayText(
-    env,
-    turn.chatId,
-    text,
-    relayReplyIdempotencyKey(turn.messageId),
-    signal,
-  );
-}
-
-/** One text Message, committed once per idempotency key. */
-export async function sendRelayText(
-  env: RelaySdkEnvironment,
-  chatId: string,
-  text: string,
-  idempotencyKey: string,
-  signal?: AbortSignal,
-): Promise<{ messageId: string; status: "sent" }> {
-  const result = await relayClient(env).chats.messages.send(
-    chatId,
-    {
-      message: {
-        idempotency_key: idempotencyKey,
-        parts: [{ type: "text", value: text }],
-      },
-    },
-    requestOptions(signal),
-  );
-  return {
-    messageId: result.message.id,
-    status: "sent",
-  };
+) {
+  return sendRelayAnswer(env, turn.chatId, answer, relayReplyIdempotencyKey(turn.messageId), signal);
 }
 
 export function createReplyAction(deps: ReplyDependencies): Action {
   return action({
-    description:
-      "Send the complete response as one canonical Relay Message. "
-      + "Call this exactly once.",
-    inputSchema: replySchema,
+    description: REPLY_DESCRIPTION,
+    inputSchema: replyInputSchema,
     idempotencyKey: () => `message:${deps.turn().messageId}`,
-    execute: ({ text }, context) =>
-      sendRelayReply(deps.env, deps.turn(), customerText(text), context.signal),
+    execute: (input, context) => sendRelayReply(deps.env, deps.turn(), composeAnswer(input), context.signal),
   });
 }

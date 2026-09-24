@@ -10,7 +10,10 @@ export type Bindings = Cloudflare.Env;
  * Optional integrations. Secrets are set with `wrangler secret put`; the
  * agent works without them (bundled menu snapshot, catering by phone).
  */
-export type OptionalConfiguration = ToastConfiguration & CateringConfiguration;
+export type OptionalConfiguration = ToastConfiguration & CateringConfiguration & {
+  /** Catering deposit charged through Relay payments once Tania's confirms; unset = no deposit. */
+  CATERING_DEPOSIT_CENTS?: string;
+};
 
 export function optionalConfiguration(env: object): OptionalConfiguration {
   const values = env as Record<string, unknown>;
@@ -21,6 +24,7 @@ export function optionalConfiguration(env: object): OptionalConfiguration {
     CAL_API_ORIGIN: pick("CAL_API_ORIGIN"),
     CAL_EVENT_TYPE_ID: pick("CAL_EVENT_TYPE_ID"),
     CAL_WEBHOOK_SECRET: pick("CAL_WEBHOOK_SECRET"),
+    CATERING_DEPOSIT_CENTS: pick("CATERING_DEPOSIT_CENTS"),
     TOAST_API_HOSTNAME: pick("TOAST_API_HOSTNAME"),
     TOAST_CLIENT_ID: pick("TOAST_CLIENT_ID"),
     TOAST_CLIENT_SECRET: pick("TOAST_CLIENT_SECRET"),

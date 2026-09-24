@@ -13,7 +13,7 @@ const RELAY_CHAT_SDK_SHA =
 const RELAY_OPENAPI_SHA256 =
   "9f3e662a13cd0e6b16a52fba4b53c75fe5817d134dcf152e00b054699c37839c";
 const RELAY_ADAPTER_INTEGRITY =
-  "sha512-g12qLaFH1RLrBPcBtjpIHOB/OzwNB18mgxoSO5a3OBhEubHtxgGB5c14vtF+TUetHNDewLaKFiwciFpZJ6Lq2A==";
+  "sha512-Shs2blkYLyjrb2Ie5GM6K5ZxylOLg47p8gvgZqlQ6kFj6XFSdwk9wjQWavR1A7CIZy5OC0DND7KbAZXywS4Mbw==";
 
 function packageVersion(name: string): string {
   const manifest = JSON.parse(
@@ -39,10 +39,10 @@ describe("locked runtime contracts", () => {
   });
 
   it("pins the coordinated Think and Relay packages", () => {
-    expect(packageVersion("@cloudflare/think")).toBe("0.17.0");
+    expect(packageVersion("@cloudflare/think")).toBe("0.19.0");
     expect(packageVersion("@relaymessenger/chat-sdk-adapter"))
-      .toBe("0.3.2-staging.0");
-    expect(packageVersion("@relaymessenger/sdk")).toBe("0.3.1-staging.2");
+      .toBe("0.3.7-staging.20");
+    expect(packageVersion("@relaymessenger/sdk")).toBe("0.3.6-staging.26");
   });
 
   it(`locks the adapter tarball built from Relay Chat SDK ${RELAY_CHAT_SDK_SHA.slice(0, 7)}`, () => {
@@ -60,8 +60,8 @@ describe("locked runtime contracts", () => {
     expect(adapter).toMatchObject({
       integrity: RELAY_ADAPTER_INTEGRITY,
       resolved:
-        "https://registry.npmjs.org/@relaymessenger/chat-sdk-adapter/-/chat-sdk-adapter-0.3.2-staging.0.tgz",
-      version: "0.3.2-staging.0",
+        "https://registry.npmjs.org/@relaymessenger/chat-sdk-adapter/-/chat-sdk-adapter-0.3.7-staging.20.tgz",
+      version: "0.3.7-staging.20",
     });
   });
 
@@ -109,9 +109,10 @@ describe("locked runtime contracts", () => {
     ]);
     expect(config.vars).toEqual({
       CAL_EVENT_TYPE_ID: "",
-      MODEL_ID: "@cf/openai/gpt-oss-120b",
+      MODEL_ID: "@cf/zai-org/glm-5.3-flash",
       RELAY_AGENT_HANDLE: "taniaspizza",
       RELAY_API_ORIGIN: "https://api.staging.relayapp.im",
+      RELAY_INTERACTIVE_PARTS: "true",
       TOAST_RESTAURANT_GUID: "",
     });
     expect(config.ai).toEqual({ binding: "AI" });
@@ -150,7 +151,7 @@ describe("locked runtime contracts", () => {
         "RELAY_WEBHOOK_SECRET",
       ]);
       expect(target?.vars).toMatchObject({
-        MODEL_ID: "@cf/openai/gpt-oss-120b",
+        MODEL_ID: "@cf/zai-org/glm-5.3-flash",
         RELAY_AGENT_HANDLE: "taniaspizza",
       });
       expect(target?.ai).toEqual({ binding: "AI" });

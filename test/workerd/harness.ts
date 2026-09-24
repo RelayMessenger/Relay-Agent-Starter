@@ -81,6 +81,7 @@ function replyActionKey(messageId: string): string {
 }
 
 export const MENU_TRIGGER = "[menu-turn]";
+export const LOCATION_TRIGGER = "[location-turn]";
 export const NO_REPLY_TRIGGER = "[no-reply-turn]";
 export const EMPTY_TURN_TRIGGER = "[empty-turn]";
 export const PLAIN_TEXT_ANSWER = "We're open until 8 PM today.";
@@ -153,10 +154,22 @@ function testModel(): MockLanguageModelV3 {
         // A turn that ends with neither a reply nor any text.
         return textStream(" ");
       }
+      if (prompt.includes(LOCATION_TRIGGER)) {
+        return prompt.includes("Relay showed them a Share Location prompt")
+          ? toolCallStream("reply", { text: "Share your location and I'll check if you're in our 3-mile delivery area." })
+          : toolCallStream("request_location", {});
+      }
       if (prompt.includes(MENU_TRIGGER)) {
         const link = /"orderLink":"([^"]+)"/u.exec(prompt.replaceAll('\\"', '"'));
         if (link) {
-          return toolCallStream("reply", { text: `Here you go: ${link[1]}` });
+          return toolCallStream("reply", {
+            text: [
+              'The 14" Deluxe is $17.99. Tap below to order it.',
+              "```buttons",
+              JSON.stringify([{ label: 'Order the 14" Deluxe', url: link[1] }]),
+              "```",
+            ].join("\n"),
+          });
         }
         return toolCallStream("search_menu", { queries: ["14 deluxe pizza"] });
       }

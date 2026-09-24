@@ -41,6 +41,13 @@ describe("batched menu tools", () => {
       '14" Build Your Own Pizza',
       "no such thing zzz",
     ]);
-    expect(result.results[2].optionGroups).toEqual([]);
+    expect(result.results[2].choices).toEqual([]);
+    // Crust arrives as ready-to-send buttons, toppings as a selection.
+    const large = result.results[1].choices as Array<{ question: string; buttons?: Array<{ label: string }>; selection?: Array<{ label: string; value: string }> }>;
+    const crust = large.find((choice) => /crust/iu.test(choice.question));
+    expect(crust?.buttons?.map((button) => button.label)).toContain("Stuffed (Our Specialty) (+$2.99)");
+    const toppings = large.find((choice) => /whole toppings/iu.test(choice.question));
+    expect(toppings?.selection?.length).toBeGreaterThanOrEqual(20);
+    expect(toppings?.selection?.find((option) => option.value === "pepperoni")?.label).toBe("Pepperoni (+$2.25)");
   });
 });

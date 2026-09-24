@@ -11,7 +11,7 @@ function bindings(
   overrides: RelayConfiguration = {},
 ): RelayConfiguration {
   return {
-    MODEL_ID: "@cf/openai/gpt-oss-120b",
+    MODEL_ID: "@cf/zai-org/glm-5.3-flash",
     RELAY_AGENT_HANDLE: "starter_test",
     RELAY_AGENT_TOKEN: "relay-test-token",
     RELAY_API_ORIGIN: "https://api.staging.relayapp.im",

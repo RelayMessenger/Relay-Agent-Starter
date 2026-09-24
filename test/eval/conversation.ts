@@ -7,11 +7,20 @@ import {
   type LanguageModel,
   type ModelMessage,
 } from "ai";
-import { z } from "zod";
+import type { MessagePart } from "@relaymessenger/sdk";
 
 import { forcedReplyStep, MAX_OUTPUT_TOKENS, MAX_STEPS } from "../../src/limits";
 import { cateringRequestInput, cateringRequestProblem, PENDING_STATUS } from "../../src/catering";
-import { customerText } from "../../src/answer";
+import {
+  composeAnswer,
+  REPLY_DESCRIPTION,
+  REQUEST_CATERING_DESCRIPTION,
+  REQUEST_LOCATION_DESCRIPTION,
+  replyInputSchema,
+  requestLocationInputSchema,
+} from "../../src/action-specs";
+import { answerToMessages, FALLBACK_REPLY } from "../../src/answer";
+import type { DeliveryDistance } from "../../src/interactive";
 import { SNAPSHOT_MENU } from "../../src/menu";
 import { systemPrompt } from "../../src/prompt";
 import { taniasTools } from "../../src/tools";
@@ -28,7 +37,16 @@ import { taniasTools } from "../../src/tools";
 export const EVAL_CONFIGURED = Boolean(process.env.EVAL_BASE_URL && process.env.EVAL_MODEL);
 
 export interface TurnResult {
+  /**
+   * Everything the customer would see, flattened for assertions: text parts,
+   * button labels and urls, selection labels, link card URLs.
+   */
   reply: string | null;
+  /** The Relay Messages the answer becomes (answerToMessages), in order. */
+  messages: MessagePart[][];
+  /** The raw answer the model produced (reply text or plain text). */
+  answer: string | null;
+  locationRequested: boolean;
   toolCalls: Array<{ name: string; input: unknown }>;
   cateringRequests: unknown[];
   /** The model answered in plain text instead of calling reply. */
@@ -66,31 +84,59 @@ function model() {
   return provider.chatModel(process.env.EVAL_MODEL!) as unknown as LanguageModel;
 }
 
+export function flatten(messages: MessagePart[][]): string {
+  return messages.flat().map((part) => {
+    if (part.type === "text") return part.value;
+    if (part.type === "link") return part.value;
+    if (part.type === "buttons") return part.items.map((item) => [item.label, item.url].filter(Boolean).join(" ")).join("\n");
+    if (part.type === "selection") return part.options.map((option) => option.label).join("\n");
+    return "";
+  }).join("\n");
+}
+
 export async function runTurn(
   history: ModelMessage[],
-  options: { now: Date; cateringEnv?: Record<string, string>; fetcher?: typeof fetch },
+  options: {
+    now: Date;
+    cateringEnv?: Record<string, string>;
+    fetcher?: typeof fetch;
+    distance?: DeliveryDistance;
+    interactive?: boolean;
+  },
 ): Promise<TurnResult> {
   let reply: string | null = null;
+  let locationRequested = false;
   const cateringRequests: unknown[] = [];
   const tools = {
     ...taniasTools({
+      deliveryDistance: async () => options.distance
+        ?? { instruction: "They aren't sharing a location.", status: "not_sharing" as const },
       env: options.cateringEnv ?? {},
       fetcher: options.fetcher,
       menu: async () => SNAPSHOT_MENU,
       now: () => options.now,
     }),
     reply: tool({
-      description: "Send the complete response as one canonical Relay Message. Call this exactly once.",
-      inputSchema: z.object({ text: z.string().trim().min(1).max(10_000) }).strict(),
-      execute: async ({ text }) => {
-        reply = text;
+      description: REPLY_DESCRIPTION,
+      inputSchema: replyInputSchema,
+      execute: async (input) => {
+        reply = composeAnswer(input);
         return { status: "sent" };
       },
     }),
+    request_location: tool({
+      description: REQUEST_LOCATION_DESCRIPTION,
+      inputSchema: requestLocationInputSchema,
+      execute: async () => {
+        locationRequested = true;
+        return {
+          instruction: "Relay showed them a Share Location prompt. Tell them you'll check the distance once they share.",
+          status: "requested",
+        };
+      },
+    }),
     request_catering: tool({
-      description:
-        "File a catering request on Tania's catering calendar for owner confirmation. "
-        + "Use only a start time returned by check_catering_availability, after the customer agreed to the details.",
+      description: REQUEST_CATERING_DESCRIPTION,
       inputSchema: cateringRequestInput,
       execute: async (input) => {
         const problem = cateringRequestProblem(input);
@@ -109,16 +155,20 @@ export async function runTurn(
     stopWhen: [hasToolCall("reply"), stepCountIs(MAX_STEPS)],
     system: systemPrompt(options.now),
     temperature: 0,
-    toolChoice: "required",
+    toolChoice: "auto",
     tools,
   });
   // Mirror the agent's onChatResponse: a plain-text answer is the reply.
   const repliedInText = reply === null && result.text.trim().length > 0;
+  const answer = reply ?? (repliedInText ? result.text : null);
+  const plan = answerToMessages(answer ?? FALLBACK_REPLY, { interactive: options.interactive ?? true });
   return {
+    answer,
     cateringRequests,
+    locationRequested,
+    messages: plan.messages,
     repliedInText,
-    // What the customer would actually receive (degenerate text -> fallback).
-    reply: reply !== null ? customerText(reply) : (repliedInText ? customerText(result.text) : null),
+    reply: answer === null ? null : flatten(plan.messages),
     steps: result.steps.length,
     toolCalls: result.steps.flatMap((step) =>
       step.toolCalls.map((call) => ({ input: call.input, name: call.toolName }))),

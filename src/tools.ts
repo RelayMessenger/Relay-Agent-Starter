@@ -3,16 +3,20 @@ import { z } from "zod";
 
 import { availabilityInput, cateringAvailability, type CateringConfiguration } from "./catering";
 import { storeStatus, weeklyHoursText } from "./hours";
+import type { DeliveryDistance } from "./interactive";
 import {
   categoryItems,
   itemOptions,
   menuCategories,
+  offeredChoice,
   orderUrl,
   searchMenu,
   type Menu,
 } from "./menu";
 
 export interface ToolDependencies {
+  /** Distance from the shop to the customer's shared location. */
+  deliveryDistance?: () => Promise<DeliveryDistance>;
   env: CateringConfiguration;
   menu(): Promise<Menu>;
   now(): Date;
@@ -58,8 +62,9 @@ export function taniasTools(deps: ToolDependencies): ToolSet {
     }),
     get_item_options: tool({
       description:
-        "Customization options (crusts, sizes, sauces, cheese, toppings) with add-on prices, as shown on the order page. "
-        + "Pass every item you need in one call.",
+        "Customization choices for an item (crust, sauce, cheese, toppings, extras) with add-on prices, as on the order "
+        + "page. Each choice comes ready to send: pass its buttons or selection straight into reply's buttons or "
+        + "selection field, with its question in your text. Pass every item you need in one call.",
       inputSchema: z.object({
         items: z.array(z.string().trim().min(1).max(200)).min(1).max(6),
       }).strict(),
@@ -69,8 +74,11 @@ export function taniasTools(deps: ToolDependencies): ToolSet {
           results: items.map((item) => {
             const options = itemOptions(menu, item);
             return options
-              ? { item: options.item, optionGroups: options.groups }
-              : { item, note: "No option details for this item. The order page shows all choices.", optionGroups: [] };
+              ? {
+                choices: options.groups.map(offeredChoice).filter((choice) => choice !== null),
+                item: options.item,
+              }
+              : { choices: [], item, note: "No option details for this item. The order page shows all choices." };
           }),
         };
       },
@@ -79,6 +87,15 @@ export function taniasTools(deps: ToolDependencies): ToolSet {
       description: "Whether Tania's is open right now, and the weekly hours.",
       inputSchema: z.object({}).strict(),
       execute: async () => ({ ...storeStatus(deps.now()), weeklyHours: weeklyHoursText() }),
+    }),
+    check_delivery_distance: tool({
+      description:
+        "Distance in miles from Tania's to the location the customer is sharing, and whether that's inside the "
+        + "delivery area. Call it after they share (a location card arrives), or if they say they already shared.",
+      inputSchema: z.object({}).strict(),
+      execute: async () => deps.deliveryDistance
+        ? deps.deliveryDistance()
+        : { instruction: "Location isn't available here. Say checkout confirms the address.", status: "not_sharing" },
     }),
     check_catering_availability: tool({
       description:

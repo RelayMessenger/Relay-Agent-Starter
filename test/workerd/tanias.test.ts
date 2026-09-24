@@ -4,7 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { searchMenu, SNAPSHOT_MENU } from "../../src/menu";
 import { relayReplyIdempotencyKey } from "../../src/reply";
 import { FALLBACK_REPLY } from "../../src/agent";
-import { EMPTY_TURN_TRIGGER, MENU_TRIGGER, NO_REPLY_TRIGGER, PLAIN_TEXT_ANSWER } from "./harness";
+import { answerToMessages } from "../../src/answer";
+import { EMPTY_TURN_TRIGGER, LOCATION_TRIGGER, MENU_TRIGGER, NO_REPLY_TRIGGER, PLAIN_TEXT_ANSWER } from "./harness";
 
 const RELAY_SECRET = "test-secret";
 const CAL_SECRET = "cal-test-secret";
@@ -126,6 +127,12 @@ function installRelay(): RecordedCall[] {
     if (pathname.endsWith("/messages")) {
       return Response.json({ message: { id: uuid("01993d52") } }, { status: 202 });
     }
+    if (pathname === "/v1/payment_requests") {
+      return Response.json({ checkout_url: "https://pay.relayapp.im/test", id: uuid("01993d5f"), status: "requested" });
+    }
+    if (pathname.endsWith("/location/request")) {
+      return Response.json({ message: { id: uuid("01993d60") } });
+    }
     throw new Error(`Unexpected request: ${request.method} ${request.url}`);
   }));
   return calls;
@@ -157,10 +164,14 @@ describe("menu turn", () => {
     ]);
     const send = calls[1]!;
     expect(send.headers.get("idempotency-key")).toBe(relayReplyIdempotencyKey(messageId));
+    // One Message: the words, and an order url button under them.
     expect(JSON.parse(send.body)).toEqual({
       message: {
         idempotency_key: relayReplyIdempotencyKey(messageId),
-        parts: [{ type: "text", value: `Here you go: ${expectedLink}` }],
+        parts: [
+          { type: "text", value: 'The 14" Deluxe is $17.99. Tap below to order it.' },
+          { items: [{ label: 'Order the 14" Deluxe', url: expectedLink }], type: "buttons" },
+        ],
       },
     });
   });
@@ -192,7 +203,29 @@ describe("turn without a reply", () => {
   });
 
   it("sends the fallback when the turn produced no answer at all", async () => {
-    expect(await turn(EMPTY_TURN_TRIGGER)).toEqual([{ type: "text", value: FALLBACK_REPLY }]);
+    expect(await turn(EMPTY_TURN_TRIGGER)).toEqual(
+      answerToMessages(FALLBACK_REPLY, { interactive: true }).messages[0],
+    );
+  });
+});
+
+describe("location request", () => {
+  it("asks Relay to prompt the customer to share their location, then replies", async () => {
+    const calls = installRelay();
+    const chatId = uuid("01993d61");
+    const messageId = uuid("01993d62");
+    const response = await SELF.fetch(await relayWebhook({
+      chatId,
+      messageId,
+      senderId: uuid("01993d63"),
+      text: `${LOCATION_TRIGGER} do you deliver to me?`,
+    }));
+    expect(response.status).toBe(200);
+    expect(calls.map((c) => [c.method, c.pathname])).toEqual([
+      ["POST", `/v1/chats/${chatId}/read`],
+      ["POST", `/v1/chats/${chatId}/location/request`],
+      ["POST", `/v1/chats/${chatId}/messages`],
+    ]);
   });
 });
 
@@ -225,8 +258,24 @@ describe("Cal.com catering decisions", () => {
     const chatId = uuid("01993d56");
     const response = await SELF.fetch(await calWebhook(decision(chatId, "BOOKING_CREATED", "ACCEPTED")));
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ delivered: true, status: "accepted" });
-    expect(calls).toHaveLength(1);
+    expect(await response.json()).toEqual({ delivered: true, deposit: "sent", status: "accepted" });
+    // The confirmation, then the deposit: a payment request on Tania's
+    // Stripe account and its card, each idempotent on the booking.
+    expect(calls.map((c) => [c.method, c.pathname])).toEqual([
+      ["POST", `/v1/chats/${chatId}/messages`],
+      ["POST", "/v1/payment_requests"],
+      ["POST", `/v1/chats/${chatId}/messages`],
+    ]);
+    expect(JSON.parse(calls[1]!.body)).toMatchObject({
+      amount: 5000,
+      category: "physical_goods",
+      currency: "usd",
+      description: "Catering deposit",
+    });
+    expect(calls[1]!.headers.get("idempotency-key")).toBe("tanias-pizza-agent:deposit:bk_workerd");
+    expect(JSON.parse(calls[2]!.body).message.parts).toEqual([
+      { checkout_url: "https://pay.relayapp.im/test", type: "payment" },
+    ]);
     const key = "tanias-pizza-agent:catering:bk_workerd:accepted";
     expect(calls[0]!.pathname).toBe(`/v1/chats/${chatId}/messages`);
     expect(calls[0]!.headers.get("idempotency-key")).toBe(key);

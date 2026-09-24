@@ -258,10 +258,11 @@ function expectCanonicalTurn(
 function bindings(): Bindings {
   return {
     AI: {} as Ai,
-    CAL_EVENT_TYPE_ID: "",
-    MODEL_ID: "@cf/openai/gpt-oss-120b",
+    CAL_EVENT_TYPE_ID: "" as Bindings["CAL_EVENT_TYPE_ID"],
+    MODEL_ID: "@cf/zai-org/glm-5.3-flash",
     RELAY_AGENT_HANDLE: "taniaspizza",
     RELAY_AGENT_TOKEN: "relay-test-token",
+    RELAY_INTERACTIVE_PARTS: "true",
     RELAY_API_ORIGIN: "https://api.staging.relayapp.im",
     RELAY_WEBHOOK_SECRET: "whsec_dGVzdC1zZWNyZXQ=",
     RelayChat: {} as DurableObjectNamespace<RelayChatAgent>,
@@ -300,7 +301,7 @@ describe("Relay Think messenger", () => {
   });
 
   it("keeps the replaceable model seam to one configured model ID", () => {
-    expect(starterModel(bindings())).toBe("@cf/openai/gpt-oss-120b");
+    expect(starterModel(bindings())).toBe("@cf/zai-org/glm-5.3-flash");
   });
 });
 
@@ -346,6 +347,7 @@ describe("canonical Relay delivery", () => {
       "one complete answer",
     )).resolves.toEqual({
       messageId: REPLY_ID,
+      messageIds: [REPLY_ID],
       status: "sent",
     });
 

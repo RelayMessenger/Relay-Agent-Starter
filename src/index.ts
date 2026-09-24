@@ -14,7 +14,9 @@ import {
   rateLimitedSenderFromSignedPayload,
   relayChatIdFromSignedPayload,
 } from "./events";
-import { sendRelayText } from "./reply";
+import { createPaymentPart, RelayAPIError } from "@relaymessenger/sdk";
+
+import { interactiveParts, relayClient, sendRelayAnswer } from "./reply";
 
 export { RelayChatAgent, ThinkMessengerStateAgent } from "./agent";
 export {
@@ -155,7 +157,8 @@ async function routeCalWebhook(
   }
   const key = `tanias-pizza-agent:catering:${decision.bookingUid}:${decision.status}`;
   // Relay's idempotency key makes Cal.com's retries safe.
-  const sent = await sendRelayText(env, decision.chatId, decision.text, key);
+  const sent = await sendRelayAnswer(env, decision.chatId, decision.text, key);
+  const deposit = decision.status === "accepted" ? await sendCateringDeposit(env, decision) : "not_applicable";
   try {
     const agent = await getAgentByName(env.RelayChat, decision.chatId);
     await (agent as unknown as {
@@ -167,7 +170,45 @@ async function routeCalWebhook(
       error: error instanceof Error ? error.message : String(error),
     }));
   }
-  return Response.json({ delivered: true, status: decision.status });
+  return Response.json({ delivered: true, deposit, status: decision.status });
+}
+
+/**
+ * When Tania's confirms a catering job and has set CATERING_DEPOSIT_CENTS,
+ * the customer gets a Relay payment card for the deposit (a direct charge on
+ * Tania's own connected Stripe account; Relay takes no fee). The Worker, not
+ * the model, sends it, so an amount is never invented. Until Stripe is
+ * connected in Relay Console the request is refused (403) and nothing is
+ * sent.
+ */
+async function sendCateringDeposit(
+  env: Bindings,
+  decision: { bookingUid: string; chatId: string },
+): Promise<string> {
+  const cents = Number(optionalConfiguration(env).CATERING_DEPOSIT_CENTS);
+  if (!Number.isInteger(cents) || cents <= 0) return "not_configured";
+  if (!interactiveParts(env)) return "not_supported_on_this_server";
+  const key = `tanias-pizza-agent:deposit:${decision.bookingUid}`;
+  const relay = relayClient(env);
+  try {
+    const payment = await createPaymentPart(relay, {
+      amount: cents,
+      category: "physical_goods",
+      currency: "usd",
+      description: "Catering deposit",
+      metadata: { cal_booking_uid: decision.bookingUid },
+    }, key);
+    await relay.chats.messages.send(decision.chatId, {
+      message: { idempotency_key: key, parts: [payment] },
+    });
+    return "sent";
+  } catch (error) {
+    if (error instanceof RelayAPIError && (error.status === 403 || error.status === 503)) {
+      console.warn(JSON.stringify({ event: "catering_deposit_unavailable", status: error.status, error: error.message }));
+      return "payments_unavailable";
+    }
+    throw error;
+  }
 }
 
 export default {

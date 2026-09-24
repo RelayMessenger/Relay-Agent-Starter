@@ -15,14 +15,14 @@ describe("Tania's system prompt", () => {
   });
 
   it("carries the ordering, allergy, alcohol and catering guardrails", () => {
-    expect(prompt).toContain("you cannot place or pay for orders");
+    expect(prompt).toContain("You cannot place, change or pay for orders");
     expect(prompt).toContain("https://taniaspizza.toast.site/order");
     expect(prompt).toContain("never promise something is allergen-free");
     expect(prompt).toContain("Never sell, recommend, link or discuss buying alcohol");
     expect(prompt).not.toContain("in-store only");
-    expect(prompt).toContain("Never quote catering prices or confirm a booking yourself");
+    expect(prompt).toContain("Never quote catering prices, create payments or confirm a booking yourself");
     expect(prompt).toContain("within about 3 miles");
-    expect(prompt).toContain("never say whether a particular town, street or address is inside or outside");
+    expect(prompt).toContain("Never guess whether a town or address is in range");
     expect(prompt).toContain("calling reply exactly once");
   });
 });
@@ -46,7 +46,7 @@ describe("per-sender rate limit key", () => {
 
 describe("per-step reply policy", async () => {
   const { forcedReplyStep, MAX_STEPS } = await import("../src/limits");
-  const reply = { activeTools: ["reply"], toolChoice: "required" };
+  const reply = { activeTools: ["reply"], toolChoice: "auto" };
 
   it("leaves early steps free", () => {
     expect(forcedReplyStep(0, [])).toBeUndefined();
@@ -68,19 +68,25 @@ describe("per-step reply policy", async () => {
   });
 });
 
-describe("degenerate model output", async () => {
-  const { customerText, FALLBACK_REPLY, looksDegenerate } = await import("../src/answer");
+describe("Relay message rules in the prompt", () => {
+  const prompt = systemPrompt(new Date("2026-09-24T18:00:00Z"));
 
-  it("replaces runs of one character and letterless text with the fallback", () => {
-    expect(looksDegenerate("!".repeat(40))).toBe(true);
-    expect(looksDegenerate("   ")).toBe(true);
-    expect(looksDegenerate("?!?! ... --- !!!")).toBe(true);
-    expect(customerText("!".repeat(40))).toBe(FALLBACK_REPLY);
+  it("carries the SDK's own component and link instructions", async () => {
+    const sdk = await import("@relaymessenger/sdk");
+    for (const rule of [
+      sdk.BUTTONS_GUIDANCE,
+      sdk.SELECTION_GUIDANCE,
+      sdk.LINK_LINE_INSTRUCTION,
+    ]) {
+      expect(prompt).toContain(rule);
+    }
   });
 
-  it("keeps real answers, including menu names with punctuation", () => {
-    const answer = 'The 14" Extra! Extra! is $17.99: https://taniaspizza.toast.site/order/tanias-pizza/item-14-extra-extra_234e1dc8';
-    expect(looksDegenerate(answer)).toBe(false);
-    expect(customerText(`  ${answer}  `)).toBe(answer);
+  it("states Relay's formatting and asks for components in the ordering flow", () => {
+    expect(prompt).toContain('write a list as short lines that start with "• "');
+    expect(prompt).toContain("Never put a URL in a sentence.");
+    expect(prompt).toContain("Crust as buttons from get_item_options");
+    expect(prompt).toContain("Toppings as a selection");
+    expect(prompt).toContain("call request_location");
   });
 });

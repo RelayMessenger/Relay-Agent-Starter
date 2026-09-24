@@ -27,7 +27,13 @@ import {
   requireRelayToken,
   requireRelayWebhookSecret,
 } from "./env";
-import { customerText } from "./answer";
+import {
+  REQUEST_CATERING_DESCRIPTION,
+  REQUEST_LOCATION_DESCRIPTION,
+  requestLocationInputSchema,
+} from "./action-specs";
+import { FALLBACK_REPLY } from "./answer";
+import { deliveryDistance, requestRelayLocation, withComponentContext } from "./interactive";
 import { forcedReplyStep, MAX_OUTPUT_TOKENS, MAX_STEPS } from "./limits";
 import { SNAPSHOT_MENU } from "./menu";
 import { starterModel } from "./model";
@@ -37,8 +43,9 @@ import { taniasTools } from "./tools";
 import {
   createReplyAction,
   markRelayChatRead,
+  relayClient,
   relayReplyIdempotencyKey,
-  sendRelayText,
+  sendRelayAnswer,
   type RelayTurnIdentity,
 } from "./reply";
 
@@ -49,7 +56,7 @@ const RELAY_WEBHOOK_PATH = "/webhooks/relay";
 const ACTION_RETRY_LEASE_MS = 0;
 export { MAX_STEPS };
 
-export { FALLBACK_REPLY } from "./answer";
+export { FALLBACK_REPLY };
 
 /** True when the turn's assistant message holds a completed reply Action. */
 /**
@@ -77,13 +84,15 @@ const UUID =
 export function createRelayMessenger(env: Bindings) {
   const handle = requireRelayAgentHandle(env);
   return chatSdkMessenger({
-    adapter: createRelayAdapter({
+    // Selection answers, location cards and payment receipts reach the
+    // turn as data (see interactive.ts).
+    adapter: withComponentContext(createRelayAdapter({
       baseUrl: env.RELAY_API_ORIGIN,
       token: requireRelayToken(env),
       typing: false,
       userName: handle,
       webhookSecret: requireRelayWebhookSecret(env),
-    }),
+    })),
     adapterName: "relay",
     capabilities: {
       canEditMessages: false,
@@ -133,6 +142,7 @@ export class RelayChatAgent extends Think<Bindings> {
   override getTools(): ToolSet {
     const env = optionalConfiguration(this.env);
     return taniasTools({
+      deliveryDistance: () => deliveryDistance(relayClient(this.env), this.relayTurn().chatId),
       env,
       menu: () => liveMenu(env, SNAPSHOT_MENU),
       now: () => new Date(),
@@ -145,11 +155,18 @@ export class RelayChatAgent extends Think<Bindings> {
         env: this.env,
         turn: () => this.relayTurn(),
       }),
+      request_location: action({
+        description: REQUEST_LOCATION_DESCRIPTION,
+        inputSchema: requestLocationInputSchema,
+        idempotencyKey: () => `location:${this.relayTurn().messageId}`,
+        execute: (_input, context) => requestRelayLocation(
+          relayClient(this.env),
+          this.relayTurn().chatId,
+          context.signal ? { signal: context.signal } : {},
+        ),
+      }),
       request_catering: action({
-        description:
-          "File a catering request on Tania's catering calendar for owner confirmation. "
-          + "Use only a start time returned by check_catering_availability, after the customer agreed to the details. "
-          + "Call at most once per customer message.",
+        description: REQUEST_CATERING_DESCRIPTION,
         inputSchema: cateringRequestInput,
         idempotencyKey: () => `catering:${this.relayTurn().messageId}`,
         execute: (input, context) => requestCatering(
@@ -199,7 +216,11 @@ export class RelayChatAgent extends Think<Bindings> {
       sendReasoning: false,
       // Every step is a tool call; the turn ends when the one reply lands.
       stopWhen: hasToolCall("reply"),
-      toolChoice: "required",
+      // "auto", not "required": ai 7.0.107 throws ToolChoiceViolationError
+      // when a model answers in text under "required", and Workers AI
+      // gpt-oss does after a tool result. A text answer is the reply
+      // (onChatResponse), through the same answer contract as the Action.
+      toolChoice: "auto",
     };
   }
 
@@ -219,16 +240,16 @@ export class RelayChatAgent extends Think<Bindings> {
     if (!turn || result.status !== "completed" || turnReplied(result.message)) return;
     // The model answered in plain text: that text is the reply. Only a turn
     // with no answer at all gets the fallback.
-    const text = turnText(result.message).slice(0, 10_000);
+    const text = turnText(result.message).slice(0, 20_000);
     console.warn(JSON.stringify({
       chat_id: turn.chatId,
       event: text ? "reply_from_text" : "turn_without_reply",
     }));
     try {
-      await sendRelayText(
+      await sendRelayAnswer(
         this.env,
         turn.chatId,
-        customerText(text),
+        text || FALLBACK_REPLY,
         relayReplyIdempotencyKey(turn.messageId),
       );
     } catch (error) {

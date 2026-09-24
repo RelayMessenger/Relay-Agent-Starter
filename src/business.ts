@@ -19,6 +19,9 @@ export const WEEKLY_HOURS: Readonly<Record<number, { open: string; close: string
   6: { open: "10:00", close: "21:00" },
 };
 
+/** 3204 Crooks Rd, Royal Oak, MI 48073 (US Census Geocoder, 2026-09-24). */
+export const STORE_LOCATION = { latitude: 42.5174393, longitude: -83.1647485 } as const;
+
 export const BUSINESS = {
   name: "Tania's Pizza",
   tagline: "Home of the Stuffed Pizza, since 1987",

@@ -156,3 +156,32 @@ export function itemOptions(menu: Menu, itemName: string): { item: string; group
 export function orderUrl(menu: Menu): string {
   return menu.orderUrl || BUSINESS.orderUrl;
 }
+
+export type OfferedChoice =
+  | { question: string; pick: "one"; buttons: Array<{ label: string }> }
+  | { question: string; pick: "one" | "several"; selection: Array<{ value: string; label: string }> };
+
+function priceLabel(name: string, price: number | null): string {
+  const label = price && price > 0 ? `${name} (+$${price.toFixed(2)})` : name;
+  return label.length > 80 ? `${label.slice(0, 79)}…` : label;
+}
+
+/** A modifier group as the component the customer should tap: its question, and buttons or a selection. */
+export function offeredChoice(group: ModifierGroup): OfferedChoice | null {
+  const options = group.options.filter((option) => option.name.trim());
+  if (options.length === 0) return null;
+  // Toast's own wording ("Choose your 12\" Crust", "... (Optional, selection Not Required)") trimmed to a question.
+  const question = group.name.replace(/\s*\(.*?\)\s*/gu, " ").replace(/\s+/gu, " ").trim();
+  const single = group.max === 1;
+  if (single && options.length <= 5) {
+    return { buttons: options.map((option) => ({ label: priceLabel(option.name, option.price) })), pick: "one", question };
+  }
+  const seen = new Set<string>();
+  const selection = options.slice(0, 25).map((option, index) => {
+    let value = option.name.toLowerCase().replace(/[^a-z0-9]+/gu, "_").replace(/^_+|_+$/gu, "") || `option_${index}`;
+    if (seen.has(value)) value = `${value}_${index}`;
+    seen.add(value);
+    return { label: priceLabel(option.name, option.price), value: value.slice(0, 100) };
+  });
+  return { pick: single ? "one" : "several", question, selection };
+}

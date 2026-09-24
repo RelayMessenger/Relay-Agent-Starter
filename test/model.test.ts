@@ -6,7 +6,7 @@ describe("model seam", () => {
   it("returns the configured Workers AI model ID", () => {
     expect(starterModel({
       AI: {} as Ai,
-      MODEL_ID: "@cf/openai/gpt-oss-120b",
-    })).toBe("@cf/openai/gpt-oss-120b");
+      MODEL_ID: "@cf/zai-org/glm-5.3-flash",
+    })).toBe("@cf/zai-org/glm-5.3-flash");
   });
 });

@@ -28,16 +28,16 @@ export function forcedReplyStep(
   stepNumber: number,
   steps: ReadonlyArray<StepView>,
   maxSteps = MAX_STEPS,
-): { activeTools: Array<"reply">; toolChoice: "required" } | undefined {
+): { activeTools: Array<"reply">; toolChoice: "auto" } | undefined {
   const filed = steps.some((step) =>
     step.toolResults.some((result) =>
       result.toolName === "request_catering"
       && (result.output as { status?: unknown } | undefined)?.status === FILED));
   if (filed || stepNumber >= maxSteps - 1) {
-    // "required" with reply as the only active tool, rather than a named
-    // tool choice: OpenAI-compatible servers (llama.cpp, and possibly Workers
-    // AI) accept only the string forms of tool_choice.
-    return { activeTools: ["reply"], toolChoice: "required" };
+    // Only reply stays active. "auto" rather than "required": ai 7.0.107
+    // throws when a model answers in text under "required", and a text
+    // answer is delivered the same way as the reply Action.
+    return { activeTools: ["reply"], toolChoice: "auto" };
   }
   return undefined;
 }

@@ -30,11 +30,13 @@
     }
   ],
   "vars": {
-    "MODEL_ID": "@cf/openai/gpt-oss-120b",
+    "MODEL_ID": "@cf/zai-org/glm-5.3-flash",
+    "RELAY_INTERACTIVE_PARTS": "true",
     "RELAY_AGENT_HANDLE": "starter_test",
     "RELAY_AGENT_TOKEN": "relay-test-token",
     "RELAY_API_ORIGIN": "https://api.staging.relayapp.im",
     "RELAY_WEBHOOK_SECRET": "whsec_dGVzdC1zZWNyZXQ=",
-    "CAL_WEBHOOK_SECRET": "cal-test-secret"
+    "CAL_WEBHOOK_SECRET": "cal-test-secret",
+    "CATERING_DEPOSIT_CENTS": "5000"
   }
 }
