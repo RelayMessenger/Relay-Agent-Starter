@@ -1,6 +1,7 @@
 import type { CateringConfiguration } from "./catering";
 import { cateringConfigured } from "./catering";
 import type { ToastConfiguration } from "./toast";
+import { type WebConfiguration, webConfigured } from "./web";
 import { toastConfigured } from "./toast";
 
 /** Bindings are generated from wrangler.jsonc by `wrangler types`. */
@@ -10,7 +11,7 @@ export type Bindings = Cloudflare.Env;
  * Optional integrations. Secrets are set with `wrangler secret put`; the
  * agent works without them (bundled menu snapshot, catering by phone).
  */
-export type OptionalConfiguration = ToastConfiguration & CateringConfiguration & {
+export type OptionalConfiguration = ToastConfiguration & CateringConfiguration & WebConfiguration & {
   /** Catering deposit charged through Relay payments once Tania's confirms; unset = no deposit. */
   CATERING_DEPOSIT_CENTS?: string;
 };
@@ -25,6 +26,7 @@ export function optionalConfiguration(env: object): OptionalConfiguration {
     CAL_EVENT_TYPE_ID: pick("CAL_EVENT_TYPE_ID"),
     CAL_WEBHOOK_SECRET: pick("CAL_WEBHOOK_SECRET"),
     CATERING_DEPOSIT_CENTS: pick("CATERING_DEPOSIT_CENTS"),
+    TAVILY_API_KEY: pick("TAVILY_API_KEY"),
     TOAST_API_HOSTNAME: pick("TOAST_API_HOSTNAME"),
     TOAST_CLIENT_ID: pick("TOAST_CLIENT_ID"),
     TOAST_CLIENT_SECRET: pick("TOAST_CLIENT_SECRET"),
@@ -38,6 +40,7 @@ export function integrationStatus(env: object) {
     catering: cateringConfigured(config) ? "cal.com" : "phone",
     cateringWebhook: Boolean(config.CAL_WEBHOOK_SECRET?.trim()),
     menu: toastConfigured(config) ? "toast-live" : "snapshot",
+    webSearch: webConfigured(config),
   };
 }
 

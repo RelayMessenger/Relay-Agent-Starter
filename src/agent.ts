@@ -147,6 +147,7 @@ export class RelayChatAgent extends Think<Bindings> {
       env,
       menu: () => liveMenu(env, SNAPSHOT_MENU),
       now: () => new Date(),
+      web: env,
     });
   }
 

@@ -257,7 +257,7 @@ describe("health", () => {
     const response = await SELF.fetch("https://tanias.example/healthz");
     const body = await response.text();
     expect(JSON.parse(body)).toEqual({
-      integrations: { catering: "phone", cateringWebhook: true, menu: "snapshot" },
+      integrations: { catering: "phone", cateringWebhook: true, menu: "snapshot", webSearch: false },
       ok: true,
     });
     expect(body).not.toContain("cal-test-secret");

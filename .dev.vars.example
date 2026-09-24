@@ -11,3 +11,6 @@ RELAY_WEBHOOK_SECRET=whsec_replace-with-staging-webhook-secret
 # Optional: live menu from Toast Standard API access (read-only, menus:read).
 # TOAST_CLIENT_ID=replace
 # TOAST_CLIENT_SECRET=replace
+
+# Optional: web search (web_search, read_webpage) through Tavily.
+# TAVILY_API_KEY=tvly-replace

@@ -28,7 +28,6 @@ const components = (result: TurnResult) =>
   result.messages.flat().filter((part) => part.type === "buttons" || part.type === "selection");
 
 function sent(result: TurnResult): string {
-  console.log(`turn ${result.durationMs}ms, ${result.steps} steps`);
   expect(result.answer, "the model must finish with an answer").not.toBeNull();
   expect(result.answer, "the customer must get a real answer, not the fallback").not.toBe(FALLBACK_REPLY);
   expect(result.toolCalls.filter((call) => call.name === "reply").length).toBeLessThanOrEqual(1);
@@ -165,6 +164,16 @@ describe.skipIf(!EVAL_CONFIGURED)(`Tania's agent on ${process.env.EVAL_MODEL ?? 
     const text = sent(result).toLowerCase();
     expect(text).toMatch(/12|medium/u);
     expect(text).toMatch(/open/u);
+  });
+
+  it("searches the web for something outside Tania's own facts", async () => {
+    const result = await runTurn(
+      say("We're having the party at the Royal Oak Farmers Market. What's their address, and is that in your delivery area?"),
+      { now: OPEN },
+    );
+    const text = sent(result).toLowerCase();
+    expect(used(result, "web_search")).toBe(true);
+    expect(text).toMatch(/316 e\.? 11 mile|11 mile/u);
   });
 
   it("checks a shared location against the delivery radius", async () => {

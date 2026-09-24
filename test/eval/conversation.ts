@@ -1,3 +1,4 @@
+import { appendFileSync } from "node:fs";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import {
   generateText,
@@ -117,6 +118,7 @@ export async function runTurn(
       fetcher: options.fetcher,
       menu: async () => SNAPSHOT_MENU,
       now: () => options.now,
+      web: { TAVILY_API_KEY: process.env.TAVILY_API_KEY },
     }),
     reply: tool({
       description: REPLY_DESCRIPTION,
@@ -165,9 +167,13 @@ export async function runTurn(
   const repliedInText = reply === null && result.text.trim().length > 0;
   const answer = reply ?? (repliedInText ? result.text : null);
   const plan = answerToMessages(answer ?? FALLBACK_REPLY, { interactive: options.interactive ?? true });
+  const durationMs = Date.now() - started;
+  if (process.env.EVAL_TIMINGS) {
+    appendFileSync(process.env.EVAL_TIMINGS, `${durationMs}\t${result.steps.length}\n`);
+  }
   return {
     answer,
-    durationMs: Date.now() - started,
+    durationMs,
     cateringRequests,
     locationRequested,
     messages: plan.messages,

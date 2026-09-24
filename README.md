@@ -72,6 +72,7 @@ Secrets (`npx wrangler secret put NAME --env <env>`):
 | `RELAY_WEBHOOK_SECRET` | yes | `signing_secret` from creating the webhook subscription (shown once) |
 | `CAL_API_KEY` | for online catering | Tania's Cal.com → Settings → Developer → API keys |
 | `CAL_WEBHOOK_SECRET` | for catering decisions | the secret you pass to `scripts/setup-catering.mjs` |
+| `TAVILY_API_KEY` | for web search | Tavily (web_search and read_webpage tools) |
 | `TOAST_CLIENT_ID`, `TOAST_CLIENT_SECRET` | for a live menu | Toast Web → Integrations → Toast API access (Standard, read-only, needs `menus:read`) |
 
 `GET /healthz` reports missing required settings and which integrations are

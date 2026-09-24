@@ -4,6 +4,7 @@ import { z } from "zod";
 import { availabilityInput, cateringAvailability, type CateringConfiguration } from "./catering";
 import { storeStatus, weeklyHoursText } from "./hours";
 import { deliveryDistanceToAddress } from "./geocode";
+import { readWebpage, type WebConfiguration, webSearch } from "./web";
 import type { DeliveryDistance } from "./interactive";
 import {
   categoryItems,
@@ -16,6 +17,8 @@ import {
 } from "./menu";
 
 export interface ToolDependencies {
+  /** Tavily key for web_search and read_webpage; absent = not configured. */
+  web?: WebConfiguration;
   /** Distance from the shop to the customer's shared location. */
   deliveryDistance?: () => Promise<DeliveryDistance>;
   env: CateringConfiguration;
@@ -88,6 +91,24 @@ export function taniasTools(deps: ToolDependencies): ToolSet {
       description: "Whether Tania's is open right now, and the weekly hours.",
       inputSchema: z.object({}).strict(),
       execute: async () => ({ ...storeStatus(deps.now()), weeklyHours: weeklyHoursText() }),
+    }),
+    web_search: tool({
+      description:
+        "Search the web. Use it for anything Tania's own tools don't cover: a venue or event location, directions "
+        + "and drive times, parking, local events, a business or place the customer mentions, or a general question. "
+        + "Not for Tania's menu, prices or hours: those come from your other tools.",
+      inputSchema: z.object({
+        query: z.string().trim().min(2).max(400),
+        topic: z.enum(["general", "news"]).optional().describe("news for recent events"),
+      }).strict(),
+      execute: async ({ query, topic }) => webSearch(deps.web ?? {}, { query, ...(topic ? { topic } : {}) }, deps.fetcher),
+    }),
+    read_webpage: tool({
+      description: "Read the text of one web page (for example a result from web_search, or a link the customer sent).",
+      inputSchema: z.object({
+        url: z.string().trim().max(2_048).regex(/^https?:\/\/\S+$/u),
+      }).strict(),
+      execute: async ({ url }) => readWebpage(deps.web ?? {}, url, deps.fetcher),
     }),
     check_delivery_address: tool({
       description:
