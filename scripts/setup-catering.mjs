@@ -20,6 +20,25 @@
 
 const API = process.env.CAL_API_ORIGIN ?? "https://api.cal.com";
 const EVENT_TYPES_VERSION = "2026-06-12";
+const SCHEDULES_VERSION = "2024-06-11";
+
+// Tania's store hours, the same as WEEKLY_HOURS in src/business.ts (a test
+// keeps them equal). Catering slots come only from this schedule, not from
+// the Cal.com account's default working hours.
+export const STORE_HOURS = [
+  { days: ["Monday", "Tuesday", "Wednesday", "Thursday"], startTime: "10:00", endTime: "20:00" },
+  { days: ["Friday", "Saturday"], startTime: "10:00", endTime: "21:00" },
+  { days: ["Sunday"], startTime: "11:00", endTime: "20:00" },
+];
+
+export function scheduleBody() {
+  return {
+    availability: STORE_HOURS,
+    isDefault: false,
+    name: "Tania's store hours (catering)",
+    timeZone: "America/Detroit",
+  };
+}
 
 function parseArgs(argv) {
   const options = {
@@ -64,8 +83,9 @@ function parseArgs(argv) {
   return options;
 }
 
-export function eventTypeBody(options) {
+export function eventTypeBody(options, scheduleId) {
   return {
+    ...(scheduleId ? { scheduleId } : {}),
     bookingFields: [
       { field: "name", label: "Your name", slug: "name", variant: "fullName" },
       { field: "email", label: "Email", required: true, slug: "email" },
@@ -122,7 +142,9 @@ async function main() {
   const webhook = webhookBody(options);
   if (!options.apply) {
     console.log("Dry run. Nothing sent. Re-run with --apply to create:\n");
-    console.log(`POST ${API}/v2/event-types  (cal-api-version: ${EVENT_TYPES_VERSION})`);
+    console.log(`POST ${API}/v2/schedules  (cal-api-version: ${SCHEDULES_VERSION})`);
+    console.log(JSON.stringify(scheduleBody(), null, 2));
+    console.log(`\nPOST ${API}/v2/event-types  (cal-api-version: ${EVENT_TYPES_VERSION}), scheduleId = the new schedule`);
     console.log(JSON.stringify(eventType, null, 2));
     console.log(`\nPOST ${API}/v2/event-types/<new id>/webhooks`);
     console.log(JSON.stringify({ ...webhook, secret: "<redacted>" }, null, 2));
@@ -131,11 +153,18 @@ async function main() {
   if (!process.env.CAL_API_KEY?.startsWith("cal_")) {
     throw new Error("Set CAL_API_KEY to Tania's Cal.com API key (starts with cal_).");
   }
-  const created = await call("/v2/event-types", eventType, { "cal-api-version": EVENT_TYPES_VERSION });
+  const schedule = await call("/v2/schedules", scheduleBody(), { "cal-api-version": SCHEDULES_VERSION });
+  const scheduleId = schedule?.data?.id;
+  if (!Number.isInteger(scheduleId)) throw new Error("Cal.com returned no schedule id");
+  const created = await call(
+    "/v2/event-types",
+    eventTypeBody(options, scheduleId),
+    { "cal-api-version": EVENT_TYPES_VERSION },
+  );
   const id = created?.data?.id;
   if (!Number.isInteger(id)) throw new Error("Cal.com returned no event type id");
   await call(`/v2/event-types/${id}/webhooks`, webhook, {});
-  console.log(`Created event type ${id} and its webhook.`);
+  console.log(`Created schedule ${scheduleId}, event type ${id} and its webhook.`);
   console.log(`Set CAL_EVENT_TYPE_ID=${id} in wrangler.jsonc, then:`);
   console.log("  npx wrangler secret put CAL_API_KEY --env <env>");
   console.log("  npx wrangler secret put CAL_WEBHOOK_SECRET --env <env>   # the --webhook-secret value");

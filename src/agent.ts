@@ -233,7 +233,7 @@ export class RelayChatAgent extends Think<Bindings> {
       );
     } catch (error) {
       console.warn(JSON.stringify({
-        event: "fallback_reply_failed",
+        event: "reply_send_failed",
         chat_id: turn.chatId,
         error: error instanceof Error ? error.message : String(error),
       }));

@@ -63,7 +63,7 @@
         "MODEL_ID": "@cf/openai/gpt-oss-120b",
         "RELAY_AGENT_HANDLE": "taniaspizza",
         "RELAY_API_ORIGIN": "https://api.staging.relayapp.im",
-        "CAL_EVENT_TYPE_ID": "",
+        "CAL_EVENT_TYPE_ID": "7215538",
         "TOAST_RESTAURANT_GUID": ""
       },
       "ai": {

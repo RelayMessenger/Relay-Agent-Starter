@@ -2,7 +2,8 @@ import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
 // @ts-expect-error: plain ESM script without type declarations.
-import { eventTypeBody, webhookBody } from "../scripts/setup-catering.mjs";
+import { eventTypeBody, scheduleBody, STORE_HOURS, webhookBody } from "../scripts/setup-catering.mjs";
+import { WEEKLY_HOURS } from "../src/business";
 import { bookingBody, cateringRequestInput } from "../src/catering";
 
 const OPTIONS = {
@@ -49,6 +50,19 @@ describe("Cal.com catering setup", () => {
     const select = (slug: string) => body.bookingFields.find((field) => field.slug === slug)?.options;
     expect(select("fulfillment")).toContain(responses.fulfillment);
     expect(select("utensils")).toContain(responses.utensils);
+  });
+
+  it("offers catering only during Tania's store hours", () => {
+    const names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const fromScript: Record<string, { open: string; close: string }> = {};
+    for (const block of STORE_HOURS as Array<{ days: string[]; startTime: string; endTime: string }>) {
+      for (const day of block.days) fromScript[day] = { close: block.endTime, open: block.startTime };
+    }
+    for (const [index, hours] of Object.entries(WEEKLY_HOURS)) {
+      expect(fromScript[names[Number(index)]!], names[Number(index)]).toEqual(hours);
+    }
+    expect(scheduleBody()).toMatchObject({ isDefault: false, timeZone: "America/Detroit" });
+    expect(eventTypeBody(OPTIONS, 42)).toMatchObject({ scheduleId: 42 });
   });
 
   it("uses slugs Cal.com accepts", () => {
