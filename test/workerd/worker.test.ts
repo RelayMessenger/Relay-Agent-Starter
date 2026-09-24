@@ -263,7 +263,7 @@ function bindings(): Bindings {
   return {
     AI: {} as Ai,
     CAL_EVENT_TYPE_ID: "" as Bindings["CAL_EVENT_TYPE_ID"],
-    MODEL_ID: "@cf/zai-org/glm-5.3-flash",
+    MODEL_ID: "@cf/zai-org/glm-5.3",
     RELAY_AGENT_HANDLE: "taniaspizza",
     RELAY_AGENT_TOKEN: "relay-test-token",
     RELAY_INTERACTIVE_PARTS: "true",
@@ -305,7 +305,7 @@ describe("Relay Think messenger", () => {
   });
 
   it("keeps the replaceable model seam to one configured model ID", () => {
-    expect(starterModel(bindings())).toBe("@cf/zai-org/glm-5.3-flash");
+    expect(starterModel(bindings())).toBe("@cf/zai-org/glm-5.3");
   });
 });
 

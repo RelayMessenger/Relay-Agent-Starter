@@ -15,7 +15,7 @@
     ]
   },
   "vars": {
-    "MODEL_ID": "@cf/zai-org/glm-5.3-flash",
+    "MODEL_ID": "@cf/zai-org/glm-5.3",
     "RELAY_INTERACTIVE_PARTS": "true",
     "RELAY_AGENT_HANDLE": "taniaspizza",
     "RELAY_API_ORIGIN": "https://api.staging.relayapp.im",
@@ -61,7 +61,7 @@
         ]
       },
       "vars": {
-        "MODEL_ID": "@cf/zai-org/glm-5.3-flash",
+        "MODEL_ID": "@cf/zai-org/glm-5.3",
         "RELAY_INTERACTIVE_PARTS": "true",
         "RELAY_AGENT_HANDLE": "taniaspizza",
         "RELAY_API_ORIGIN": "https://api.staging.relayapp.im",
@@ -96,7 +96,7 @@
         ]
       },
       "vars": {
-        "MODEL_ID": "@cf/zai-org/glm-5.3-flash",
+        "MODEL_ID": "@cf/zai-org/glm-5.3",
         "RELAY_INTERACTIVE_PARTS": "false",
         "RELAY_AGENT_HANDLE": "taniaspizza",
         "RELAY_API_ORIGIN": "https://api.relayapp.im",

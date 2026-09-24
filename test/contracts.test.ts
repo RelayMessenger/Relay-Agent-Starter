@@ -109,7 +109,7 @@ describe("locked runtime contracts", () => {
     ]);
     expect(config.vars).toEqual({
       CAL_EVENT_TYPE_ID: "",
-      MODEL_ID: "@cf/zai-org/glm-5.3-flash",
+      MODEL_ID: "@cf/zai-org/glm-5.3",
       RELAY_AGENT_HANDLE: "taniaspizza",
       RELAY_API_ORIGIN: "https://api.staging.relayapp.im",
       RELAY_INTERACTIVE_PARTS: "true",
@@ -151,7 +151,7 @@ describe("locked runtime contracts", () => {
         "RELAY_WEBHOOK_SECRET",
       ]);
       expect(target?.vars).toMatchObject({
-        MODEL_ID: "@cf/zai-org/glm-5.3-flash",
+        MODEL_ID: "@cf/zai-org/glm-5.3",
         RELAY_AGENT_HANDLE: "taniaspizza",
       });
       expect(target?.ai).toEqual({ binding: "AI" });
