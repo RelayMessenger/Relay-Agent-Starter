@@ -56,8 +56,9 @@ export function composeAnswer(input: ReplyInput): string {
 }
 
 export const REQUEST_LOCATION_DESCRIPTION =
-  "Ask the customer to share their location, so check_delivery_distance can tell whether they're within "
-  + "Tania's delivery area. Relay shows them a Share Location prompt. Use it when delivery to them comes up.";
+  "Ask the customer to share their phone's current location (Relay shows a Share Location prompt). Only when they "
+  + "want delivery to where they are right now and haven't given an address. Never after they've given an address: "
+  + "use check_delivery_address for that.";
 
 export const requestLocationInputSchema = z.object({}).strict();
 

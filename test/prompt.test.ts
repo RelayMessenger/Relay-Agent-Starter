@@ -22,7 +22,8 @@ describe("Tania's system prompt", () => {
     expect(prompt).not.toContain("in-store only");
     expect(prompt).toContain("Never quote catering prices, create payments or confirm a booking yourself");
     expect(prompt).toContain("within about 3 miles");
-    expect(prompt).toContain("Never guess whether a town or address is in range");
+    expect(prompt).toContain("call check_delivery_address with it right away");
+    expect(prompt).toContain("Never ask for their location after they've given an address");
     expect(prompt).toContain("calling reply exactly once");
   });
 });
@@ -87,6 +88,7 @@ describe("Relay message rules in the prompt", () => {
     expect(prompt).toContain("Never put a URL in a sentence.");
     expect(prompt).toContain("Crust as buttons from get_item_options");
     expect(prompt).toContain("Toppings as a selection");
-    expect(prompt).toContain("call request_location");
+    expect(prompt).toContain("offer request_location if they'd rather share their location");
+    expect(prompt).toContain("never ask for it again");
   });
 });

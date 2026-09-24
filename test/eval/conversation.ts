@@ -47,6 +47,8 @@ export interface TurnResult {
   /** The raw answer the model produced (reply text or plain text). */
   answer: string | null;
   locationRequested: boolean;
+  /** Wall-clock time for the whole turn, model and tools. */
+  durationMs: number;
   toolCalls: Array<{ name: string; input: unknown }>;
   cateringRequests: unknown[];
   /** The model answered in plain text instead of calling reply. */
@@ -146,6 +148,7 @@ export async function runTurn(
       },
     }),
   };
+  const started = Date.now();
   const result = await generateText({
     maxOutputTokens: MAX_OUTPUT_TOKENS,
     maxRetries: 1,
@@ -164,6 +167,7 @@ export async function runTurn(
   const plan = answerToMessages(answer ?? FALLBACK_REPLY, { interactive: options.interactive ?? true });
   return {
     answer,
+    durationMs: Date.now() - started,
     cateringRequests,
     locationRequested,
     messages: plan.messages,

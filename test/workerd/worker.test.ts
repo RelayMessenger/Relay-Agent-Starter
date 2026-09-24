@@ -197,6 +197,7 @@ function installRelayBackend(input: {
       pathname,
     });
 
+    if (pathname.endsWith("/typing")) return new Response(null, { status: 204 });
     if (
       pathname === `/v1/chats/${input.chatId}/read`
       && request.method === "POST"
@@ -240,10 +241,13 @@ function installRelayBackend(input: {
 }
 
 function expectCanonicalTurn(
-  calls: RelayRequest[],
+  allCalls: RelayRequest[],
   chatId: string,
   messageId: string,
 ): void {
+  // The typing indicator is best effort and brackets the turn; the canonical
+  // turn is Read then one Message.
+  const calls = allCalls.filter((call) => !call.pathname.endsWith("/typing"));
   expect(calls.map(({ method, pathname }) => [method, pathname])).toEqual([
     ["POST", `/v1/chats/${chatId}/read`],
     ["POST", `/v1/chats/${chatId}/messages`],

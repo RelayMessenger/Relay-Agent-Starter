@@ -5,7 +5,7 @@ import { searchMenu, SNAPSHOT_MENU } from "../../src/menu";
 import { relayReplyIdempotencyKey } from "../../src/reply";
 import { FALLBACK_REPLY } from "../../src/agent";
 import { answerToMessages } from "../../src/answer";
-import { EMPTY_TURN_TRIGGER, LOCATION_TRIGGER, MENU_TRIGGER, NO_REPLY_TRIGGER, PLAIN_TEXT_ANSWER } from "./harness";
+import { EMPTY_TURN_TRIGGER, LOCATION_TRIGGER, MENU_TRIGGER, SLOW_TRIGGER, NO_REPLY_TRIGGER, PLAIN_TEXT_ANSWER } from "./harness";
 
 const RELAY_SECRET = "test-secret";
 const CAL_SECRET = "cal-test-secret";
@@ -123,7 +123,7 @@ function installRelay(): RecordedCall[] {
       method: request.method,
       pathname,
     });
-    if (pathname.endsWith("/read")) return new Response(null, { status: 204 });
+    if (pathname.endsWith("/read") || pathname.endsWith("/typing")) return new Response(null, { status: 204 });
     if (pathname.endsWith("/messages")) {
       return Response.json({ message: { id: uuid("01993d52") } }, { status: 202 });
     }
@@ -158,11 +158,11 @@ describe("menu turn", () => {
 
     const expectedLink = searchMenu(SNAPSHOT_MENU, "14 deluxe pizza")[0]!.orderLink;
     expect(expectedLink).toMatch(/^https:\/\/taniaspizza\.toast\.site\/order\/tanias-pizza\/item-14-deluxe-pizza_/u);
-    expect(calls.map((c) => [c.method, c.pathname])).toEqual([
+    expect(calls.filter((c) => !c.pathname.endsWith("/typing")).map((c) => [c.method, c.pathname])).toEqual([
       ["POST", `/v1/chats/${chatId}/read`],
       ["POST", `/v1/chats/${chatId}/messages`],
     ]);
-    const send = calls[1]!;
+    const send = calls.filter((c) => !c.pathname.endsWith("/typing"))[1]!;
     expect(send.headers.get("idempotency-key")).toBe(relayReplyIdempotencyKey(messageId));
     // One Message: the words, and an order url button under them.
     expect(JSON.parse(send.body)).toEqual({
@@ -209,6 +209,29 @@ describe("turn without a reply", () => {
   });
 });
 
+describe("follow-up while the agent is thinking", () => {
+  it("answers once, from the newest Message, instead of once per Message", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const calls = installRelay();
+    const chatId = uuid("01993d64");
+    const sender = uuid("01993d65");
+    const first = uuid("01993d66");
+    const second = uuid("01993d67");
+    const slow = SELF.fetch(await relayWebhook({ chatId, messageId: first, senderId: sender, text: `${SLOW_TRIGGER} hi` }));
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const follow = SELF.fetch(await relayWebhook({ chatId, messageId: second, senderId: sender, text: "follow-up question" }));
+    await Promise.all([slow, follow]);
+    await vi.waitFor(() => {
+      expect(calls.filter((c) => c.pathname.endsWith("/messages"))).toHaveLength(1);
+    }, { timeout: 10_000 });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const sends = calls.filter((c) => c.pathname.endsWith("/messages"));
+    expect(sends).toHaveLength(1);
+    expect(sends[0]!.headers.get("idempotency-key")).toBe(relayReplyIdempotencyKey(second));
+    expect(JSON.stringify(JSON.parse(sends[0]!.body))).not.toContain("stale answer");
+  }, 30_000);
+});
+
 describe("location request", () => {
   it("asks Relay to prompt the customer to share their location, then replies", async () => {
     const calls = installRelay();
@@ -221,7 +244,7 @@ describe("location request", () => {
       text: `${LOCATION_TRIGGER} do you deliver to me?`,
     }));
     expect(response.status).toBe(200);
-    expect(calls.map((c) => [c.method, c.pathname])).toEqual([
+    expect(calls.filter((c) => !c.pathname.endsWith("/typing")).map((c) => [c.method, c.pathname])).toEqual([
       ["POST", `/v1/chats/${chatId}/read`],
       ["POST", `/v1/chats/${chatId}/location/request`],
       ["POST", `/v1/chats/${chatId}/messages`],
@@ -261,7 +284,7 @@ describe("Cal.com catering decisions", () => {
     expect(await response.json()).toEqual({ delivered: true, deposit: "sent", status: "accepted" });
     // The confirmation, then the deposit: a payment request on Tania's
     // Stripe account and its card, each idempotent on the booking.
-    expect(calls.map((c) => [c.method, c.pathname])).toEqual([
+    expect(calls.filter((c) => !c.pathname.endsWith("/typing")).map((c) => [c.method, c.pathname])).toEqual([
       ["POST", `/v1/chats/${chatId}/messages`],
       ["POST", "/v1/payment_requests"],
       ["POST", `/v1/chats/${chatId}/messages`],

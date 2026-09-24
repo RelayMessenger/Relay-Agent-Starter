@@ -52,6 +52,7 @@ import {
 export { ThinkMessengerStateAgent };
 
 const RELAY_WEBHOOK_PATH = "/webhooks/relay";
+const LATEST_INBOUND_KEY = "tanias:latest-inbound-message";
 // Relay's downstream Message idempotency key makes immediate reclaim safe.
 const ACTION_RETRY_LEASE_MS = 0;
 export { MAX_STEPS };
@@ -153,6 +154,7 @@ export class RelayChatAgent extends Think<Bindings> {
     return {
       reply: createReplyAction({
         env: this.env,
+        superseded: (turn) => this.superseded(turn),
         turn: () => this.relayTurn(),
       }),
       request_location: action({
@@ -199,6 +201,9 @@ export class RelayChatAgent extends Think<Bindings> {
       throw error;
     }
     this.pendingTurns.push(turn);
+    // Relay's typing indicator for the whole turn (best effort; stopped in
+    // onChatResponse), so a customer sees the agent is working.
+    void relayClient(this.env).chats.startTyping(turn.chatId).catch(() => {});
     try {
       await markRelayChatRead(this.env, turn.chatId);
     } catch (error) {
@@ -237,7 +242,12 @@ export class RelayChatAgent extends Think<Bindings> {
    */
   override async onChatResponse(result: ChatResponseResult): Promise<void> {
     const turn = this.pendingTurns.shift();
+    if (turn) await relayClient(this.env).chats.stopTyping(turn.chatId).catch(() => {});
     if (!turn || result.status !== "completed" || turnReplied(result.message)) return;
+    if (await this.superseded(turn)) {
+      console.warn(JSON.stringify({ chat_id: turn.chatId, event: "reply_superseded" }));
+      return;
+    }
     // The model answered in plain text: that text is the reply. Only a turn
     // with no answer at all gets the fallback.
     const text = turnText(result.message).slice(0, 20_000);
@@ -259,6 +269,23 @@ export class RelayChatAgent extends Think<Bindings> {
         error: error instanceof Error ? error.message : String(error),
       }));
     }
+  }
+
+  /**
+   * The Worker records each person's newest Message in this Chat as it
+   * arrives (noteInbound), before the turns run one by one. A turn whose
+   * Message is no longer the newest stays silent: the newer turn sees every
+   * Message in history and answers them together, so a customer who sends a
+   * follow-up while the agent is thinking gets one answer, not one per
+   * Message (Relay-Agent's chronological admission, simplified).
+   */
+  async noteInbound(messageId: string): Promise<void> {
+    await this.ctx.storage.put(LATEST_INBOUND_KEY, messageId);
+  }
+
+  private async superseded(turn: RelayTurnIdentity): Promise<boolean> {
+    const latest = await this.ctx.storage.get<string>(LATEST_INBOUND_KEY);
+    return Boolean(latest && latest !== turn.messageId);
   }
 
   /**

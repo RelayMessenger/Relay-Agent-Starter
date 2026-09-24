@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { availabilityInput, cateringAvailability, type CateringConfiguration } from "./catering";
 import { storeStatus, weeklyHoursText } from "./hours";
+import { deliveryDistanceToAddress } from "./geocode";
 import type { DeliveryDistance } from "./interactive";
 import {
   categoryItems,
@@ -88,10 +89,19 @@ export function taniasTools(deps: ToolDependencies): ToolSet {
       inputSchema: z.object({}).strict(),
       execute: async () => ({ ...storeStatus(deps.now()), weeklyHours: weeklyHoursText() }),
     }),
+    check_delivery_address: tool({
+      description:
+        "Look up a street address the customer gave and measure its distance from Tania's, and whether it's inside the "
+        + "delivery area. Use this whenever they give an address (for an order or catering). Include the city or ZIP.",
+      inputSchema: z.object({
+        address: z.string().trim().min(5).max(300).describe("The full address as the customer gave it"),
+      }).strict(),
+      execute: async ({ address }) => deliveryDistanceToAddress(address, deps.fetcher),
+    }),
     check_delivery_distance: tool({
       description:
-        "Distance in miles from Tania's to the location the customer is sharing, and whether that's inside the "
-        + "delivery area. Call it after they share (a location card arrives), or if they say they already shared.",
+        "Distance from Tania's to the live location the customer is sharing from their phone. Only after they share "
+        + "(a location card arrives). For a typed address use check_delivery_address instead.",
       inputSchema: z.object({}).strict(),
       execute: async () => deps.deliveryDistance
         ? deps.deliveryDistance()

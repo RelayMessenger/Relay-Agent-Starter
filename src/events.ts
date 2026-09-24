@@ -39,3 +39,18 @@ export function relayChatIdFromSignedPayload(payload: string): string | null {
     : null;
 }
 
+
+/** The Message ID of a person's message.received in a one-to-one Chat. */
+export function directInboundMessageId(payload: string): string | null {
+  let envelope: unknown;
+  try {
+    envelope = JSON.parse(payload) as unknown;
+  } catch {
+    return null;
+  }
+  if (!isRecord(envelope) || envelope.event_type !== "message.received") return null;
+  const data = envelope.data;
+  if (!isRecord(data) || !isRecord(data.chat) || data.chat.is_group === true) return null;
+  if (!isRecord(data.sender_handle) || data.sender_handle.kind !== "user") return null;
+  return typeof data.id === "string" && UUID.test(data.id) ? data.id : null;
+}

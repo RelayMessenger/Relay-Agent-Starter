@@ -19,10 +19,16 @@ const PHONE = /\(248\) 288-4774|248[-. ]288[-. ]4774/u;
 
 const say = (text: string): ModelMessage[] => [{ content: text, role: "user" }];
 const used = (result: TurnResult, name: string) => result.toolCalls.some((call) => call.name === name);
+/** Mocks Cal.com's slots; every other request (the address geocoder) is real. */
+const calOnly = (data: Record<string, Array<{ start: string }>>) => (async (input: RequestInfo | URL, init?: RequestInit) =>
+  String(input).startsWith("https://api.cal.com/")
+    ? Response.json({ data, status: "success" })
+    : fetch(input, init)) as unknown as typeof fetch;
 const components = (result: TurnResult) =>
   result.messages.flat().filter((part) => part.type === "buttons" || part.type === "selection");
 
 function sent(result: TurnResult): string {
+  console.log(`turn ${result.durationMs}ms, ${result.steps} steps`);
   expect(result.answer, "the model must finish with an answer").not.toBeNull();
   expect(result.answer, "the customer must get a real answer, not the fallback").not.toBe(FALLBACK_REPLY);
   expect(result.toolCalls.filter((call) => call.name === "reply").length).toBeLessThanOrEqual(1);
@@ -110,11 +116,55 @@ describe.skipIf(!EVAL_CONFIGURED)(`Tania's agent on ${process.env.EVAL_MODEL ?? 
     expect(selection!.type === "selection" && selection!.options.length).toBeGreaterThanOrEqual(5);
   });
 
-  it("asks for the customer's location to check delivery", async () => {
+  it("with no address, asks for one (or offers to use their location)", async () => {
     const result = await runTurn(say("Can you deliver to my house?"), { now: OPEN });
     const text = sent(result).toLowerCase();
-    expect(result.locationRequested).toBe(true);
+    expect(result.locationRequested || /address/u.test(text)).toBe(true);
     expect(text).toMatch(/3[ -]miles?|three miles/u);
+  });
+
+  it("looks up a typed address instead of asking for a location", async () => {
+    const result = await runTurn(say("Can you deliver to 1166 Winthrop Dr, Troy MI?"), { now: OPEN });
+    const text = sent(result).toLowerCase();
+    expect(used(result, "check_delivery_address")).toBe(true);
+    expect(result.locationRequested).toBe(false);
+    expect(text).toMatch(/\b4(\.\d)? ?(mi|miles)/u);
+    expect(text).toMatch(/outside|too far|out of|beyond|isn't within|not within/u);
+  });
+
+  it("carries a catering conversation forward: checks the event address, never re-asks", async () => {
+    const history: ModelMessage[] = [
+      { content: "I need an event catered", role: "user" },
+      { content: "Happy to help! What day is your event, and what time should the food be ready?", role: "assistant" },
+      { content: "Next tuesday at 1pm", role: "user" },
+      { content: "Tuesday, September 29 at 1:00 PM is open! How many people will we be feeding?", role: "assistant" },
+      { content: "24", role: "user" },
+      { content: "Pickup or delivery for your catering order?", role: "assistant" },
+      { content: "Delivery", role: "user" },
+      { content: "Got it, delivery! What's the street address where we should drop it off?", role: "assistant" },
+      { content: "8319 Pamela St Shelby Twp MI 48316", role: "user" },
+    ];
+    const result = await runTurn(history, {
+      cateringEnv: { CAL_API_KEY: "cal_eval", CAL_EVENT_TYPE_ID: "1" },
+      fetcher: calOnly({ "2026-09-29": [{ start: "2026-09-29T13:00:00.000-04:00" }] }),
+      now: OPEN,
+    });
+    const text = sent(result).toLowerCase();
+    expect(used(result, "check_delivery_address")).toBe(true);
+    expect(result.locationRequested, "never ask for a location after an address").toBe(false);
+    expect(text).toMatch(/\b1[34](\.\d)? ?(mi|miles)/u);
+    expect(text).not.toMatch(/what day|how many people|pickup or delivery\?|what's the (street )?address/u);
+  });
+
+  it("answers two messages sent in a row together, once", async () => {
+    const history: ModelMessage[] = [
+      { content: "How much is a large deluxe?", role: "user" },
+      { content: "Actually make that a medium. And are you open right now?", role: "user" },
+    ];
+    const result = await runTurn(history, { now: OPEN });
+    const text = sent(result).toLowerCase();
+    expect(text).toMatch(/12|medium/u);
+    expect(text).toMatch(/open/u);
   });
 
   it("checks a shared location against the delivery radius", async () => {
@@ -220,10 +270,9 @@ describe.skipIf(!EVAL_CONFIGURED)(`Tania's agent on ${process.env.EVAL_MODEL ?? 
   });
 
   it("offers only open catering slots and files a pending request, never a confirmation", async () => {
-    const fetcher = (async () => Response.json({
-      data: { "2026-10-10": [{ start: "2026-10-10T11:00:00.000-04:00" }, { start: "2026-10-10T12:00:00.000-04:00" }] },
-      status: "success",
-    })) as unknown as typeof fetch;
+    const fetcher = calOnly({
+      "2026-10-10": [{ start: "2026-10-10T11:00:00.000-04:00" }, { start: "2026-10-10T12:00:00.000-04:00" }],
+    });
     const env = { CAL_API_KEY: "cal_eval", CAL_EVENT_TYPE_ID: "1" };
     const history: ModelMessage[] = [
       { content: "Hi, I need catering for 40 people on Saturday October 10th, ready at noon.", role: "user" },

@@ -82,6 +82,7 @@ function replyActionKey(messageId: string): string {
 
 export const MENU_TRIGGER = "[menu-turn]";
 export const LOCATION_TRIGGER = "[location-turn]";
+export const SLOW_TRIGGER = "[slow-turn]";
 export const NO_REPLY_TRIGGER = "[no-reply-turn]";
 export const EMPTY_TURN_TRIGGER = "[empty-turn]";
 export const PLAIN_TEXT_ANSWER = "We're open until 8 PM today.";
@@ -114,7 +115,7 @@ function usage() {
   };
 }
 
-function toolCallStream(toolName: string, input: unknown) {
+function toolCallStream(toolName: string, input: unknown, initialDelayInMs: number | null = null) {
   return {
     stream: simulateReadableStream({
       chunkDelayInMs: null,
@@ -132,7 +133,7 @@ function toolCallStream(toolName: string, input: unknown) {
           usage: usage(),
         },
       ],
-      initialDelayInMs: null,
+      initialDelayInMs,
     }),
   };
 }
@@ -153,6 +154,10 @@ function testModel(): MockLanguageModelV3 {
       if (prompt.includes(EMPTY_TURN_TRIGGER)) {
         // A turn that ends with neither a reply nor any text.
         return textStream(" ");
+      }
+      if (prompt.includes(SLOW_TRIGGER) && !prompt.includes("follow-up")) {
+        // A slow turn the customer's next Message overtakes.
+        return toolCallStream("reply", { text: "stale answer" }, 1_500);
       }
       if (prompt.includes(LOCATION_TRIGGER)) {
         return prompt.includes("Relay showed them a Share Location prompt")

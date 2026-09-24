@@ -14,6 +14,8 @@ export interface RelayTurnIdentity {
 
 interface ReplyDependencies {
   env: Bindings;
+  /** True when a newer customer Message arrived; its turn will answer. */
+  superseded(turn: RelayTurnIdentity): Promise<boolean>;
   turn(): RelayTurnIdentity;
 }
 
@@ -95,6 +97,13 @@ export function createReplyAction(deps: ReplyDependencies): Action {
     description: REPLY_DESCRIPTION,
     inputSchema: replyInputSchema,
     idempotencyKey: () => `message:${deps.turn().messageId}`,
-    execute: (input, context) => sendRelayReply(deps.env, deps.turn(), composeAnswer(input), context.signal),
+    execute: async (input, context) => {
+      const turn = deps.turn();
+      if (await deps.superseded(turn)) {
+        console.warn(JSON.stringify({ chat_id: turn.chatId, event: "reply_superseded" }));
+        return { status: "superseded" };
+      }
+      return sendRelayReply(deps.env, turn, composeAnswer(input), context.signal);
+    },
   });
 }
