@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { searchMenu, SNAPSHOT_MENU } from "../../src/menu";
 import { relayReplyIdempotencyKey } from "../../src/reply";
-import { MENU_TRIGGER } from "./harness";
+import { FALLBACK_REPLY } from "../../src/agent";
+import { MENU_TRIGGER, NO_REPLY_TRIGGER } from "./harness";
 
 const RELAY_SECRET = "test-secret";
 const CAL_SECRET = "cal-test-secret";
@@ -162,6 +163,28 @@ describe("menu turn", () => {
         parts: [{ type: "text", value: `Here you go: ${expectedLink}` }],
       },
     });
+  });
+});
+
+describe("turn without a reply", () => {
+  it("sends one fallback Message under the reply's idempotency key", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const calls = installRelay();
+    const chatId = uuid("01993d5c");
+    const messageId = uuid("01993d5d");
+    const response = await SELF.fetch(await relayWebhook({
+      chatId,
+      messageId,
+      senderId: uuid("01993d5e"),
+      text: `${NO_REPLY_TRIGGER} hello`,
+    }));
+    expect(response.status).toBe(200);
+    await vi.waitFor(() => {
+      expect(calls.filter((c) => c.pathname.endsWith("/messages"))).toHaveLength(1);
+    });
+    const send = calls.find((c) => c.pathname.endsWith("/messages"))!;
+    expect(send.headers.get("idempotency-key")).toBe(relayReplyIdempotencyKey(messageId));
+    expect(JSON.parse(send.body).message.parts).toEqual([{ type: "text", value: FALLBACK_REPLY }]);
   });
 });
 

@@ -81,6 +81,28 @@ function replyActionKey(messageId: string): string {
 }
 
 export const MENU_TRIGGER = "[menu-turn]";
+export const NO_REPLY_TRIGGER = "[no-reply-turn]";
+
+function textStream(text: string) {
+  const id = crypto.randomUUID();
+  return {
+    stream: simulateReadableStream({
+      chunkDelayInMs: null,
+      chunks: [
+        { type: "stream-start" as const, warnings: [] },
+        { id, type: "text-start" as const },
+        { delta: text, id, type: "text-delta" as const },
+        { id, type: "text-end" as const },
+        {
+          finishReason: { raw: "stop", unified: "stop" as const },
+          type: "finish" as const,
+          usage: usage(),
+        },
+      ],
+      initialDelayInMs: null,
+    }),
+  };
+}
 
 function usage() {
   return {
@@ -121,6 +143,10 @@ function testModel(): MockLanguageModelV3 {
   return new MockLanguageModelV3({
     doStream: async (options) => {
       const prompt = JSON.stringify(options.prompt);
+      if (prompt.includes(NO_REPLY_TRIGGER)) {
+        // A model that ignores toolChoice "required" and answers in text.
+        return textStream("plain text that must never reach Relay");
+      }
       if (prompt.includes(MENU_TRIGGER)) {
         const link = /"orderLink":"([^"]+)"/u.exec(prompt.replaceAll('\\"', '"'));
         if (link) {

@@ -2,6 +2,7 @@ import {
   action,
   Think,
   type Action,
+  type ChatResponseResult,
   type TurnConfig,
   type TurnContext,
 } from "@cloudflare/think";
@@ -34,8 +35,11 @@ import { taniasTools } from "./tools";
 import {
   createReplyAction,
   markRelayChatRead,
+  relayReplyIdempotencyKey,
+  sendRelayText,
   type RelayTurnIdentity,
 } from "./reply";
+import { BUSINESS } from "./business";
 
 export { ThinkMessengerStateAgent };
 
@@ -43,6 +47,18 @@ const RELAY_WEBHOOK_PATH = "/webhooks/relay";
 // Relay's downstream Message idempotency key makes immediate reclaim safe.
 const ACTION_RETRY_LEASE_MS = 0;
 export { MAX_STEPS };
+
+export const FALLBACK_REPLY =
+  `Sorry, I got tangled up there. You can order at ${BUSINESS.orderUrl} `
+  + `or call Tania's at ${BUSINESS.phone}.`;
+
+/** True when the turn's assistant message holds a completed reply Action. */
+export function turnReplied(message: { parts?: ReadonlyArray<unknown> } | undefined): boolean {
+  return (message?.parts ?? []).some((part) => {
+    const candidate = part as { type?: unknown; state?: unknown };
+    return candidate.type === "tool-reply" && candidate.state === "output-available";
+  });
+}
 const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
@@ -138,8 +154,11 @@ export class RelayChatAgent extends Think<Bindings> {
     return { relay: createRelayMessenger(this.env) };
   }
 
+  private currentTurn: RelayTurnIdentity | undefined;
+
   override async beforeTurn(context: TurnContext): Promise<TurnConfig> {
     const turn = this.relayTurn();
+    this.currentTurn = turn;
     try {
       await markRelayChatRead(this.env, turn.chatId);
     } catch (error) {
@@ -158,6 +177,29 @@ export class RelayChatAgent extends Think<Bindings> {
       stopWhen: hasToolCall("reply"),
       toolChoice: "required",
     };
+  }
+
+  /**
+   * A completed turn that never called reply (step cap, or a model that
+   * answered in plain text) would leave the customer with silence. Send a
+   * short fallback under the reply's own idempotency key: if a reply was in
+   * fact committed, Relay rejects the different body instead of sending a
+   * second Message.
+   */
+  override async onChatResponse(result: ChatResponseResult): Promise<void> {
+    const turn = this.currentTurn;
+    this.currentTurn = undefined;
+    if (!turn || result.status !== "completed" || turnReplied(result.message)) return;
+    console.warn(JSON.stringify({ event: "turn_without_reply", chat_id: turn.chatId }));
+    try {
+      await sendRelayText(this.env, turn.chatId, FALLBACK_REPLY, relayReplyIdempotencyKey(turn.messageId));
+    } catch (error) {
+      console.warn(JSON.stringify({
+        event: "fallback_reply_failed",
+        chat_id: turn.chatId,
+        error: error instanceof Error ? error.message : String(error),
+      }));
+    }
   }
 
   /**
