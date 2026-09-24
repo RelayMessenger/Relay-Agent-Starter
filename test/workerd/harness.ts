@@ -157,7 +157,7 @@ function testModel(): MockLanguageModelV3 {
       }
       if (prompt.includes(SLOW_TRIGGER) && !prompt.includes("follow-up")) {
         // A slow turn the customer's next Message overtakes.
-        return toolCallStream("reply", { text: "stale answer" }, 1_500);
+        return toolCallStream("reply", { text: "stale answer" }, 2_500);
       }
       if (prompt.includes(LOCATION_TRIGGER)) {
         return prompt.includes("Relay showed them a Share Location prompt")

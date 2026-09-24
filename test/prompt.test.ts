@@ -90,5 +90,7 @@ describe("Relay message rules in the prompt", () => {
     expect(prompt).toContain("Toppings as a selection");
     expect(prompt).toContain("offer request_location if they'd rather share their location");
     expect(prompt).toContain("never ask for it again");
+    expect(prompt).toContain("Never make up facts");
+    expect(prompt).toContain('"What AI do you run up?" then "On" means "What AI do you run on?"');
   });
 });

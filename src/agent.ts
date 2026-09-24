@@ -4,6 +4,7 @@ import {
   type Action,
   type ChatResponseResult,
   type PrepareStepContext,
+  type StepContext,
   type TurnConfig,
   type TurnContext,
 } from "@cloudflare/think";
@@ -60,25 +61,6 @@ export { MAX_STEPS };
 export { FALLBACK_REPLY };
 
 /** True when the turn's assistant message holds a completed reply Action. */
-/**
- * The model's plain answer text for the turn, when it answered in text
- * instead of calling reply. Workers AI's gpt-oss-120b does this after a tool
- * result even under toolChoice "required" (observed 2026-09-24).
- */
-export function turnText(message: { parts?: ReadonlyArray<unknown> } | undefined): string {
-  return (message?.parts ?? [])
-    .filter((part) => (part as { type?: unknown }).type === "text")
-    .map((part) => String((part as { text?: unknown }).text ?? ""))
-    .join("")
-    .trim();
-}
-
-export function turnReplied(message: { parts?: ReadonlyArray<unknown> } | undefined): boolean {
-  return (message?.parts ?? []).some((part) => {
-    const candidate = part as { type?: unknown; state?: unknown };
-    return candidate.type === "tool-reply" && candidate.state === "output-available";
-  });
-}
 const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
@@ -186,22 +168,8 @@ export class RelayChatAgent extends Think<Bindings> {
     return { relay: createRelayMessenger(this.env) };
   }
 
-  /**
-   * Turns in one Chat run serially, but Think releases the turn lock before
-   * onChatResponse, so the next turn's beforeTurn can run first. Pair them
-   * first-in, first-out.
-   */
-  private readonly pendingTurns: Array<RelayTurnIdentity | null> = [];
-
   override async beforeTurn(context: TurnContext): Promise<TurnConfig> {
-    let turn: RelayTurnIdentity;
-    try {
-      turn = this.relayTurn();
-    } catch (error) {
-      this.pendingTurns.push(null);
-      throw error;
-    }
-    this.pendingTurns.push(turn);
+    const turn = this.relayTurn();
     // Relay's typing indicator for the whole turn (best effort; stopped in
     // onChatResponse), so a customer sees the agent is working.
     void relayClient(this.env).chats.startTyping(turn.chatId).catch(() => {});
@@ -235,40 +203,38 @@ export class RelayChatAgent extends Think<Bindings> {
   }
 
   /**
-   * A completed turn that never called reply would leave the customer with
-   * silence. If the model answered in plain text, send that text; if it
-   * produced nothing (e.g. the step cap), send a short fallback. Both use
-   * the reply's own idempotency key: if a reply was in fact committed, Relay
-   * rejects the different body instead of sending a second Message.
+   * A model that answers in plain text instead of calling reply (Workers AI
+   * models do, especially after a tool result) ends its turn with a step that
+   * has text and no tool calls. Send that text as the reply from here, inside
+   * the turn, where the turn's own Relay Message is still known; a step with
+   * neither text nor tool calls gets the fallback. Both use the reply's
+   * idempotency key. (This replaced an in-memory turn queue read in
+   * onChatResponse, which lost answers when the Durable Object restarted.)
    */
-  override async onChatResponse(result: ChatResponseResult): Promise<void> {
-    const turn = this.pendingTurns.shift();
-    if (turn) await relayClient(this.env).chats.stopTyping(turn.chatId).catch(() => {});
-    if (!turn || result.status !== "completed" || turnReplied(result.message)) return;
+  override async onStepEnd(step: StepContext): Promise<void> {
+    if (step.toolCalls.length > 0) return;
+    if (step.finishReason !== "stop" && step.finishReason !== "length") return;
+    const turn = this.relayTurn();
+    const text = step.text.trim().slice(0, 20_000);
     if (await this.superseded(turn)) {
       console.warn(JSON.stringify({ chat_id: turn.chatId, event: "reply_superseded" }));
       return;
     }
-    // The model answered in plain text: that text is the reply. Only a turn
-    // with no answer at all gets the fallback.
-    const text = turnText(result.message).slice(0, 20_000);
-    console.warn(JSON.stringify({
-      chat_id: turn.chatId,
-      event: text ? "reply_from_text" : "turn_without_reply",
-    }));
+    console.warn(JSON.stringify({ chat_id: turn.chatId, event: text ? "reply_from_text" : "turn_without_reply" }));
     try {
-      await sendRelayAnswer(
-        this.env,
-        turn.chatId,
-        text || FALLBACK_REPLY,
-        relayReplyIdempotencyKey(turn.messageId),
-      );
+      await sendRelayAnswer(this.env, turn.chatId, text || FALLBACK_REPLY, relayReplyIdempotencyKey(turn.messageId));
     } catch (error) {
       console.warn(JSON.stringify({
         event: "reply_send_failed",
         chat_id: turn.chatId,
         error: error instanceof Error ? error.message : String(error),
       }));
+    }
+  }
+
+  override async onChatResponse(result: ChatResponseResult): Promise<void> {
+    if (result.status !== "completed") {
+      console.warn(JSON.stringify({ event: "turn_not_completed", status: result.status, error: result.error }));
     }
   }
 

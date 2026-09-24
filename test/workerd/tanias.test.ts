@@ -232,6 +232,25 @@ describe("follow-up while the agent is thinking", () => {
   }, 30_000);
 });
 
+describe("correction sent while the first turn is still running", () => {
+  it("still answers, once, after the Chat SDK's debounce window", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const calls = installRelay();
+    const chatId = uuid("01993d68");
+    const sender = uuid("01993d69");
+    const first = uuid("01993d6a");
+    const second = uuid("01993d6b");
+    const slow = SELF.fetch(await relayWebhook({ chatId, messageId: first, senderId: sender, text: `${SLOW_TRIGGER} What AI do you run up?` }));
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+    const follow = SELF.fetch(await relayWebhook({ chatId, messageId: second, senderId: sender, text: "follow-up: On" }));
+    await Promise.all([slow, follow]);
+    await new Promise((resolve) => setTimeout(resolve, 4_000));
+    const sends = calls.filter((c) => c.pathname.endsWith("/messages"));
+    console.log("DIAG", JSON.stringify(warn.mock.calls.map((c) => c[0])), sends.map((s) => s.headers.get("idempotency-key")));
+    expect(sends).toHaveLength(1);
+  }, 40_000);
+});
+
 describe("location request", () => {
   it("asks Relay to prompt the customer to share their location, then replies", async () => {
     const calls = installRelay();
@@ -277,14 +296,15 @@ describe("Cal.com catering decisions", () => {
   });
 
   it("messages the customer's chat once when Tania's confirms", async () => {
-    const calls = installRelay();
+    const allCalls = installRelay();
     const chatId = uuid("01993d56");
     const response = await SELF.fetch(await calWebhook(decision(chatId, "BOOKING_CREATED", "ACCEPTED")));
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ delivered: true, deposit: "sent", status: "accepted" });
     // The confirmation, then the deposit: a payment request on Tania's
     // Stripe account and its card, each idempotent on the booking.
-    expect(calls.filter((c) => !c.pathname.endsWith("/typing")).map((c) => [c.method, c.pathname])).toEqual([
+    const calls = allCalls.filter((c) => !c.pathname.endsWith("/typing"));
+    expect(calls.map((c) => [c.method, c.pathname])).toEqual([
       ["POST", `/v1/chats/${chatId}/messages`],
       ["POST", "/v1/payment_requests"],
       ["POST", `/v1/chats/${chatId}/messages`],

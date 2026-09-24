@@ -355,7 +355,8 @@ describe("canonical Relay delivery", () => {
       status: "sent",
     });
 
-    expect(fetchMock).toHaveBeenCalledOnce();
+    // The send, then the best-effort typing stop.
+    expect(calls.filter(([url]) => !String(url).endsWith("/typing"))).toHaveLength(1);
     const [url, init] = calls[0]!;
     const key = relayReplyIdempotencyKey(MESSAGE_ID);
     expect(String(url)).toBe(

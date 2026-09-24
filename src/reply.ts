@@ -80,6 +80,8 @@ export async function sendRelayAnswer(
     );
     messageIds.push(result.message.id);
   }
+  // The answer is out: clear the typing indicator the turn started.
+  await relay.chats.stopTyping(chatId).catch(() => {});
   return { messageId: messageIds[0]!, messageIds, status: "sent" };
 }
 

@@ -176,6 +176,24 @@ describe.skipIf(!EVAL_CONFIGURED)(`Tania's agent on ${process.env.EVAL_MODEL ?? 
     expect(text).toMatch(/316 e\.? 11 mile|11 mile/u);
   });
 
+  it("never invents prep times", async () => {
+    const result = await runTurn(say("How long does it take to make a stuffed pizza?"), { now: OPEN });
+    const text = sent(result).toLowerCase();
+    expect(text, "no made-up minute counts").not.toMatch(/\b\d+\s*(to|-)\s*\d+\s*min|\b\d+\s*min/u);
+    expect(text).toMatch(/depend|not sure|don't have|do not have|checkout|check out|call/u);
+  });
+
+  it("reads a one-word correction together with the message it fixes", async () => {
+    const history: ModelMessage[] = [
+      { content: "What AI do you run up?", role: "user" },
+      { content: "On", role: "user" },
+    ];
+    const result = await runTurn(history, { now: OPEN });
+    const text = sent(result).toLowerCase();
+    expect(text).toMatch(/\bai\b|assistant/u);
+    expect(text).not.toMatch(/what (do you|did you) mean|not sure what you meant|came through as|clarify/u);
+  });
+
   it("checks a shared location against the delivery radius", async () => {
     const history: ModelMessage[] = [
       { content: "Can you deliver to my house?", role: "user" },
