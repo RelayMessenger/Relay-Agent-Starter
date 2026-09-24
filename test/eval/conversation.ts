@@ -9,8 +9,9 @@ import {
 } from "ai";
 import { z } from "zod";
 
-import { forcedReplyStep, MAX_STEPS } from "../../src/limits";
+import { forcedReplyStep, MAX_OUTPUT_TOKENS, MAX_STEPS } from "../../src/limits";
 import { cateringRequestInput, cateringRequestProblem, PENDING_STATUS } from "../../src/catering";
+import { customerText } from "../../src/answer";
 import { SNAPSHOT_MENU } from "../../src/menu";
 import { systemPrompt } from "../../src/prompt";
 import { taniasTools } from "../../src/tools";
@@ -30,6 +31,8 @@ export interface TurnResult {
   reply: string | null;
   toolCalls: Array<{ name: string; input: unknown }>;
   cateringRequests: unknown[];
+  /** The model answered in plain text instead of calling reply. */
+  repliedInText: boolean;
   steps: number;
 }
 
@@ -38,6 +41,25 @@ function model() {
     apiKey: process.env.EVAL_API_KEY ?? "none",
     baseURL: process.env.EVAL_BASE_URL!,
     name: "eval",
+    fetch: async (input, init) => {
+      // Workers AI's OpenAI-compatible endpoint rejects an assistant
+      // tool-call message whose content is null; it requires a string.
+      let body = init?.body;
+      if (typeof body === "string") {
+        const parsed = JSON.parse(body) as { messages?: Array<{ content?: unknown }> };
+        for (const message of parsed.messages ?? []) {
+          if (message.content === null) message.content = "";
+        }
+        body = JSON.stringify(parsed);
+      }
+      const response = await fetch(input, { ...init, body });
+      // EVAL_DEBUG=1 prints each failing request and response body.
+      if (process.env.EVAL_DEBUG === "all" || (!response.ok && process.env.EVAL_DEBUG)) {
+        console.error("EVAL_DEBUG request", String(body).slice(0, 4000));
+        console.error("EVAL_DEBUG response", response.status, await response.clone().text());
+      }
+      return response;
+    },
   });
   // Same LanguageModelV4 spec; the provider package pins a newer patch of
   // @ai-sdk/provider than `ai` does, so the nominal types differ.
@@ -79,6 +101,7 @@ export async function runTurn(
     }),
   };
   const result = await generateText({
+    maxOutputTokens: MAX_OUTPUT_TOKENS,
     maxRetries: 1,
     messages: history,
     model: model(),
@@ -89,9 +112,13 @@ export async function runTurn(
     toolChoice: "required",
     tools,
   });
+  // Mirror the agent's onChatResponse: a plain-text answer is the reply.
+  const repliedInText = reply === null && result.text.trim().length > 0;
   return {
     cateringRequests,
-    reply,
+    repliedInText,
+    // What the customer would actually receive (degenerate text -> fallback).
+    reply: reply !== null ? customerText(reply) : (repliedInText ? customerText(result.text) : null),
     steps: result.steps.length,
     toolCalls: result.steps.flatMap((step) =>
       step.toolCalls.map((call) => ({ input: call.input, name: call.toolName }))),

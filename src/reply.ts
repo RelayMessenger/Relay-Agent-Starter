@@ -2,6 +2,7 @@ import { action, type Action } from "@cloudflare/think";
 import Relay, { type RequestOptions } from "@relaymessenger/sdk";
 import { z } from "zod";
 
+import { customerText } from "./answer";
 import type { Bindings, RelayConfiguration } from "./env";
 import { requireRelayToken } from "./env";
 
@@ -94,6 +95,6 @@ export function createReplyAction(deps: ReplyDependencies): Action {
     inputSchema: replySchema,
     idempotencyKey: () => `message:${deps.turn().messageId}`,
     execute: ({ text }, context) =>
-      sendRelayReply(deps.env, deps.turn(), text, context.signal),
+      sendRelayReply(deps.env, deps.turn(), customerText(text), context.signal),
   });
 }

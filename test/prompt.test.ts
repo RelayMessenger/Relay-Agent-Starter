@@ -22,6 +22,7 @@ describe("Tania's system prompt", () => {
     expect(prompt).not.toContain("in-store only");
     expect(prompt).toContain("Never quote catering prices or confirm a booking yourself");
     expect(prompt).toContain("within about 3 miles");
+    expect(prompt).toContain("never say whether a particular town, street or address is inside or outside");
     expect(prompt).toContain("calling reply exactly once");
   });
 });
@@ -64,5 +65,22 @@ describe("per-step reply policy", async () => {
 
   it("forces the reply on the last allowed step", () => {
     expect(forcedReplyStep(MAX_STEPS - 1, [])).toEqual(reply);
+  });
+});
+
+describe("degenerate model output", async () => {
+  const { customerText, FALLBACK_REPLY, looksDegenerate } = await import("../src/answer");
+
+  it("replaces runs of one character and letterless text with the fallback", () => {
+    expect(looksDegenerate("!".repeat(40))).toBe(true);
+    expect(looksDegenerate("   ")).toBe(true);
+    expect(looksDegenerate("?!?! ... --- !!!")).toBe(true);
+    expect(customerText("!".repeat(40))).toBe(FALLBACK_REPLY);
+  });
+
+  it("keeps real answers, including menu names with punctuation", () => {
+    const answer = 'The 14" Extra! Extra! is $17.99: https://taniaspizza.toast.site/order/tanias-pizza/item-14-extra-extra_234e1dc8';
+    expect(looksDegenerate(answer)).toBe(false);
+    expect(customerText(`  ${answer}  `)).toBe(answer);
   });
 });

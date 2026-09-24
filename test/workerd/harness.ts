@@ -82,6 +82,8 @@ function replyActionKey(messageId: string): string {
 
 export const MENU_TRIGGER = "[menu-turn]";
 export const NO_REPLY_TRIGGER = "[no-reply-turn]";
+export const EMPTY_TURN_TRIGGER = "[empty-turn]";
+export const PLAIN_TEXT_ANSWER = "We're open until 8 PM today.";
 
 function textStream(text: string) {
   const id = crypto.randomUUID();
@@ -145,7 +147,11 @@ function testModel(): MockLanguageModelV3 {
       const prompt = JSON.stringify(options.prompt);
       if (prompt.includes(NO_REPLY_TRIGGER)) {
         // A model that ignores toolChoice "required" and answers in text.
-        return textStream("plain text that must never reach Relay");
+        return textStream(PLAIN_TEXT_ANSWER);
+      }
+      if (prompt.includes(EMPTY_TURN_TRIGGER)) {
+        // A turn that ends with neither a reply nor any text.
+        return textStream(" ");
       }
       if (prompt.includes(MENU_TRIGGER)) {
         const link = /"orderLink":"([^"]+)"/u.exec(prompt.replaceAll('\\"', '"'));

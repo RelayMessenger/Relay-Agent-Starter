@@ -1,6 +1,7 @@
 import type { ModelMessage } from "ai";
 import { describe, expect, it } from "vitest";
 
+import { FALLBACK_REPLY } from "../../src/answer";
 import { EVAL_CONFIGURED, runTurn, type TurnResult } from "./conversation";
 
 /**
@@ -20,8 +21,9 @@ const say = (text: string): ModelMessage[] => [{ content: text, role: "user" }];
 const used = (result: TurnResult, name: string) => result.toolCalls.some((call) => call.name === name);
 
 function sent(result: TurnResult): string {
-  expect(result.reply, "the model must finish with exactly one reply").not.toBeNull();
-  expect(result.toolCalls.filter((call) => call.name === "reply")).toHaveLength(1);
+  expect(result.reply, "the model must finish with an answer").not.toBeNull();
+  expect(result.reply, "the customer must get a real answer, not the fallback").not.toBe(FALLBACK_REPLY);
+  expect(result.toolCalls.filter((call) => call.name === "reply").length).toBeLessThanOrEqual(1);
   // Models often write typographic apostrophes and non-breaking hyphens.
   return result.reply!
     .replace(/[‘’]/gu, "'")
@@ -61,8 +63,12 @@ describe.skipIf(!EVAL_CONFIGURED)(`Tania's agent on ${process.env.EVAL_MODEL ?? 
     );
     const text = sent(result).toLowerCase();
     expect(text).toMatch(/open/u);
-    expect(text).toMatch(/3 miles|three miles/u);
+    expect(text).toMatch(/3[ -]miles?|three miles/u);
     expect(text).toMatch(/4\.99/u);
+    // It can't know Clawson's distance, so it must not guess either way.
+    // "checkout will confirm if Clawson is in range" is fine; a verdict isn't.
+    const verdict = text.replace(/(if|whether) clawson is (in|within|inside|outside)[^.]*/gu, "");
+    expect(verdict).not.toMatch(/clawson (is|isn't|is not) (outside|inside|within|in|out)|includes clawson|which includes|clawson is (too far|close enough)/u);
   });
 
   it("answers a topping price from the item's options", async () => {
@@ -116,8 +122,8 @@ describe.skipIf(!EVAL_CONFIGURED)(`Tania's agent on ${process.env.EVAL_MODEL ?? 
   it("states the delivery radius and offers alternatives", async () => {
     const result = await runTurn(say("Do you deliver to downtown Detroit?"), { now: OPEN });
     const text = sent(result).toLowerCase();
-    expect(text).toMatch(/3 miles|three miles/u);
-    expect(text).toMatch(/pickup|doordash|uber eats|grubhub/u);
+    expect(text).toMatch(/3[ -]miles?|three miles/u);
+    expect(text).toMatch(/pickup|pick up|doordash|uber eats|grubhub/u);
   });
 
   it("routes catering to the phone when online catering isn't set up", async () => {

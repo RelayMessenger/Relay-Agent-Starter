@@ -27,7 +27,8 @@ import {
   requireRelayToken,
   requireRelayWebhookSecret,
 } from "./env";
-import { forcedReplyStep, MAX_STEPS } from "./limits";
+import { customerText } from "./answer";
+import { forcedReplyStep, MAX_OUTPUT_TOKENS, MAX_STEPS } from "./limits";
 import { SNAPSHOT_MENU } from "./menu";
 import { starterModel } from "./model";
 import { systemPrompt } from "./prompt";
@@ -40,7 +41,6 @@ import {
   sendRelayText,
   type RelayTurnIdentity,
 } from "./reply";
-import { BUSINESS } from "./business";
 
 export { ThinkMessengerStateAgent };
 
@@ -49,11 +49,22 @@ const RELAY_WEBHOOK_PATH = "/webhooks/relay";
 const ACTION_RETRY_LEASE_MS = 0;
 export { MAX_STEPS };
 
-export const FALLBACK_REPLY =
-  `Sorry, I got tangled up there. You can order at ${BUSINESS.orderUrl} `
-  + `or call Tania's at ${BUSINESS.phone}.`;
+export { FALLBACK_REPLY } from "./answer";
 
 /** True when the turn's assistant message holds a completed reply Action. */
+/**
+ * The model's plain answer text for the turn, when it answered in text
+ * instead of calling reply. Workers AI's gpt-oss-120b does this after a tool
+ * result even under toolChoice "required" (observed 2026-09-24).
+ */
+export function turnText(message: { parts?: ReadonlyArray<unknown> } | undefined): string {
+  return (message?.parts ?? [])
+    .filter((part) => (part as { type?: unknown }).type === "text")
+    .map((part) => String((part as { text?: unknown }).text ?? ""))
+    .join("")
+    .trim();
+}
+
 export function turnReplied(message: { parts?: ReadonlyArray<unknown> } | undefined): boolean {
   return (message?.parts ?? []).some((part) => {
     const candidate = part as { type?: unknown; state?: unknown };
@@ -183,6 +194,7 @@ export class RelayChatAgent extends Think<Bindings> {
 
     return {
       activeTools: context.tools.reply ? Object.keys(context.tools) : [],
+      maxOutputTokens: MAX_OUTPUT_TOKENS,
       maxSteps: MAX_STEPS,
       sendReasoning: false,
       // Every step is a tool call; the turn ends when the one reply lands.
@@ -196,18 +208,29 @@ export class RelayChatAgent extends Think<Bindings> {
   }
 
   /**
-   * A completed turn that never called reply (step cap, or a model that
-   * answered in plain text) would leave the customer with silence. Send a
-   * short fallback under the reply's own idempotency key: if a reply was in
-   * fact committed, Relay rejects the different body instead of sending a
-   * second Message.
+   * A completed turn that never called reply would leave the customer with
+   * silence. If the model answered in plain text, send that text; if it
+   * produced nothing (e.g. the step cap), send a short fallback. Both use
+   * the reply's own idempotency key: if a reply was in fact committed, Relay
+   * rejects the different body instead of sending a second Message.
    */
   override async onChatResponse(result: ChatResponseResult): Promise<void> {
     const turn = this.pendingTurns.shift();
     if (!turn || result.status !== "completed" || turnReplied(result.message)) return;
-    console.warn(JSON.stringify({ event: "turn_without_reply", chat_id: turn.chatId }));
+    // The model answered in plain text: that text is the reply. Only a turn
+    // with no answer at all gets the fallback.
+    const text = turnText(result.message).slice(0, 10_000);
+    console.warn(JSON.stringify({
+      chat_id: turn.chatId,
+      event: text ? "reply_from_text" : "turn_without_reply",
+    }));
     try {
-      await sendRelayText(this.env, turn.chatId, FALLBACK_REPLY, relayReplyIdempotencyKey(turn.messageId));
+      await sendRelayText(
+        this.env,
+        turn.chatId,
+        customerText(text),
+        relayReplyIdempotencyKey(turn.messageId),
+      );
     } catch (error) {
       console.warn(JSON.stringify({
         event: "fallback_reply_failed",

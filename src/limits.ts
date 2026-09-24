@@ -4,6 +4,11 @@
 // model calls (and therefore Tania's inference cost) per inbound Message.
 export const MAX_STEPS = 10;
 
+// Per model call. gpt-oss spends hidden reasoning tokens before its answer,
+// and Workers AI's small default cut replies off mid-sentence (observed
+// 2026-09-24). Replies are short, so this is headroom, not a typical spend.
+export const MAX_OUTPUT_TOKENS = 2_048;
+
 interface StepView {
   toolResults: ReadonlyArray<{ toolName: string; output?: unknown }>;
 }
