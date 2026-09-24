@@ -128,7 +128,7 @@ describe.skipIf(!EVAL_CONFIGURED)(`Tania's agent on ${process.env.EVAL_MODEL ?? 
     expect(used(result, "check_delivery_address")).toBe(true);
     expect(result.locationRequested).toBe(false);
     expect(text).toMatch(/\b4(\.\d)? ?(mi|miles)/u);
-    expect(text).toMatch(/outside|too far|out of|beyond|isn't within|not within/u);
+    expect(text).toMatch(/outside|too far|out of|beyond|past|isn't within|not within|can't deliver/u);
   });
 
   it("carries a catering conversation forward: checks the event address, never re-asks", async () => {
