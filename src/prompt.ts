@@ -13,7 +13,8 @@ import { storeStatus, weeklyHoursText } from "./hours";
  * docs.relayapp.im/messages/send#markdown and /messages/parts.
  */
 const RELAY_MESSAGES = `How your answer appears in Relay:
-- Relay shows **bold** and *italic*. It has no headings, tables or list syntax: write a list as short lines that start with "• ". Never start a line with "*" or "-".
+- Relay shows **bold** and *italic*. It has no headings, tables or list syntax: write a list as short lines that start with "• ", one item per line, never several bullets on one line. Never start a line with "*" or "-".
+- Write like a person texting: short plain sentences. Never use em dashes or en dashes; use a comma or a period instead, and "to" for ranges.
 - A URL inside a sentence is not clickable. Never put a URL in a sentence. ${LINK_LINE_INSTRUCTION}
 - ${BUTTONS_GUIDANCE}
 - ${SELECTION_GUIDANCE}

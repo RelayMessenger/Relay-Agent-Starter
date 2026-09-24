@@ -105,3 +105,31 @@ describe("answerToMessages", () => {
     expect(plan.messages[0]![1]).toMatchObject({ type: "buttons" });
   });
 });
+
+describe("clean text: dashes and bullets", () => {
+  it("replaces pause dashes with commas and range dashes with hyphens", () => {
+    expect(normalizeAnswer("Same toppings on every size—only the prices scale.")).toBe(
+      "Same toppings on every size, only the prices scale.",
+    );
+    expect(normalizeAnswer("Choose WHOLE for the whole pizza – $2.25")).toBe("Choose WHOLE for the whole pizza, $2.25");
+    expect(normalizeAnswer("Open 10–8 on weekdays")).toBe("Open 10-8 on weekdays");
+    expect(normalizeAnswer("Thanks for sharing — unfortunately you're far.")).toBe("Thanks for sharing, unfortunately you're far.");
+  });
+
+  it("puts each bullet on its own line", () => {
+    expect(normalizeAnswer("• Anchovies (+$2.25) • Bacon (+$2.30) • Basil (+$1.60)")).toBe(
+      "• Anchovies (+$2.25)\n• Bacon (+$2.30)\n• Basil (+$1.60)",
+    );
+    expect(normalizeAnswer("Toppings: Pepperoni • Mushrooms")).toBe("Toppings: Pepperoni\n• Mushrooms");
+    expect(normalizeAnswer("• Stuffed crust: 10\" +$1.99, 12\" +$2.49")).toBe("• Stuffed crust: 10\" +$1.99, 12\" +$2.49");
+  });
+
+  it("fixes the 4:38 PM screenshot answer", () => {
+    const answer = "Here's the full lineup:\n\n• Anchovies (+$2.25) • Bacon (+$2.30) • Banana Peppers (+$1.60)\n• Black Olives (+$1.60) • Chicken (+$3.00)";
+    const text = normalizeAnswer(answer);
+    for (const line of text.split("\n").filter((l) => l.startsWith("•"))) {
+      expect(line.match(/•/gu)).toHaveLength(1);
+    }
+    expect(text).not.toMatch(/[—–]/u);
+  });
+});

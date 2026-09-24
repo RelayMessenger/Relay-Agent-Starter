@@ -30,6 +30,35 @@ export function looksDegenerate(text: string): boolean {
   return alphanumeric / trimmed.length < 0.3;
 }
 
+/**
+ * Dashes models use as pauses read as machine-written (owner, 2026-09-24):
+ * an em dash, or a spaced en dash, becomes a comma; a dash inside a number
+ * range becomes a plain hyphen.
+ */
+export function plainDashes(line: string): string {
+  return line
+    .replace(/(\d)\s*[–—]\s*(\d)/gu, "$1-$2")
+    .replace(/\s*—\s*/gu, ", ")
+    .replace(/\s+–\s+/gu, ", ")
+    .replace(/–/gu, "-")
+    .replace(/,\s*([,.;:!?])/gu, "$1")
+    .replace(/^,\s*/u, "");
+}
+
+/**
+ * One bullet per line: "• A • B • C" (or "Toppings: A • B") becomes a line
+ * per item, so a list reads as a list instead of a paragraph of dots.
+ */
+export function oneBulletPerLine(line: string): string[] {
+  const inner = line.replace(/^(\s*)•\s*/u, "");
+  if (!/\s•\s/u.test(inner)) return [line];
+  const lead = /^\s*•/u.test(line);
+  const pieces = inner.split(/\s+•\s+/u).map((piece) => piece.trim()).filter(Boolean);
+  if (lead) return pieces.map((piece) => `• ${piece}`);
+  const [intro, ...items] = pieces;
+  return [intro!, ...items.map((piece) => `• ${piece}`)];
+}
+
 const URL_IN_TEXT = /https?:\/\/[^\s<>()"'`]+[^\s<>()"'`.,;:!?]/gu;
 const MARKDOWN_LINK = /\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/gu;
 
@@ -51,10 +80,11 @@ export function normalizeAnswer(answer: string): string {
       continue;
     }
     if (fenced) {
-      out.push(raw);
+      // Component labels inside the JSON get the same dash rule.
+      out.push(raw.replace(/\s*—\s*/gu, " - ").replace(/–/gu, "-"));
       continue;
     }
-    let line = raw
+    let line = plainDashes(raw)
       .replace(/^(\s*)[*+-]\s+/u, "$1• ")
       .replace(/^\s*#{1,6}\s+/u, "")
       .replace(MARKDOWN_LINK, (_, label: string, url: string) => `${label} ${url}`);
@@ -71,7 +101,7 @@ export function normalizeAnswer(answer: string): string {
       for (const url of urls) out.push(url);
       continue;
     }
-    out.push(line);
+    out.push(...oneBulletPerLine(line));
   }
   return out.join("\n").replace(/\n{3,}/gu, "\n\n").trim();
 }
