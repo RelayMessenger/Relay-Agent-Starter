@@ -158,7 +158,7 @@ describe("locked runtime contracts", () => {
       expect((target as { ratelimits?: unknown }).ratelimits).toEqual([{
         name: "SENDER_LIMITER",
         namespace_id: "1001",
-        simple: { limit: 12, period: 60 },
+        simple: { limit: 20, period: 60 },
       }]);
       expect(target?.durable_objects?.bindings).toEqual([{
         class_name: "RelayChatAgent",

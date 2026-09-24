@@ -28,7 +28,7 @@
     {
       "name": "SENDER_LIMITER",
       "namespace_id": "1001",
-      "simple": { "limit": 12, "period": 60 }
+      "simple": { "limit": 20, "period": 60 }
     }
   ],
   "durable_objects": {
@@ -73,7 +73,7 @@
         {
           "name": "SENDER_LIMITER",
           "namespace_id": "1001",
-          "simple": { "limit": 12, "period": 60 }
+          "simple": { "limit": 20, "period": 60 }
         }
       ],
       "durable_objects": {
@@ -107,7 +107,7 @@
         {
           "name": "SENDER_LIMITER",
           "namespace_id": "1001",
-          "simple": { "limit": 12, "period": 60 }
+          "simple": { "limit": 20, "period": 60 }
         }
       ],
       "durable_objects": {
