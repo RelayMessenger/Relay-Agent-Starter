@@ -19,6 +19,7 @@
     "test/**/*.ts",
     "vitest.config.ts",
     "vitest.workerd.config.ts",
+    "vitest.eval.config.ts",
     "worker-configuration.d.ts"
   ]
 }

@@ -13,6 +13,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  realpathSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -50,7 +51,8 @@ function git(cwd: string, ...args: string[]): string {
 }
 
 function createFixture(branch = "staging"): DeployFixture {
-  const root = mkdtempSync(join(tmpdir(), "relay-deploy-test-"));
+  // realpath: macOS tmpdir() is a /var symlink to /private/var.
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "relay-deploy-test-")));
   temporaryRoots.push(root);
   const remote = join(root, "remote.git");
   const repo = join(root, "repo");
@@ -76,10 +78,10 @@ function createFixture(branch = "staging"): DeployFixture {
   }));
   writeFileSync(join(repo, "wrangler.jsonc"), JSON.stringify({
     env: {
-      production: { name: "relay-think-agent-starter" },
-      staging: { name: "relay-think-agent-starter-staging" },
+      production: { name: "tanias-pizza-agent" },
+      staging: { name: "tanias-pizza-agent-staging" },
     },
-    name: "relay-think-agent-starter-development",
+    name: "tanias-pizza-agent-development",
   }));
 
   const wrangler = join(repo, "node_modules", "wrangler");

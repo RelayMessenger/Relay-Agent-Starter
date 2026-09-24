@@ -100,17 +100,19 @@ describe("locked runtime contracts", () => {
     ) as { scripts?: Record<string, string> };
     const production = config.env?.production;
 
-    expect(config.name).toBe("relay-think-agent-starter-development");
-    expect(production?.name).toBe("relay-think-agent-starter");
+    expect(config.name).toBe("tanias-pizza-agent-development");
+    expect(production?.name).toBe("tanias-pizza-agent");
     expect(config.name).not.toBe(production?.name);
     expect(config.secrets?.required).toEqual([
       "RELAY_AGENT_TOKEN",
       "RELAY_WEBHOOK_SECRET",
     ]);
     expect(config.vars).toEqual({
+      CAL_EVENT_TYPE_ID: "",
       MODEL_ID: "@cf/openai/gpt-oss-120b",
-      RELAY_AGENT_HANDLE: "your_agent_handle",
+      RELAY_AGENT_HANDLE: "taniaspizza",
       RELAY_API_ORIGIN: "https://api.staging.relayapp.im",
+      TOAST_RESTAURANT_GUID: "",
     });
     expect(config.ai).toEqual({ binding: "AI" });
     expect(config.durable_objects?.bindings).toEqual([{
@@ -138,9 +140,9 @@ describe("locked runtime contracts", () => {
     };
 
     expect(config.env?.staging?.name)
-      .toBe("relay-think-agent-starter-staging");
+      .toBe("tanias-pizza-agent-staging");
     expect(config.env?.production?.name)
-      .toBe("relay-think-agent-starter");
+      .toBe("tanias-pizza-agent");
     for (const environment of ["staging", "production"]) {
       const target = config.env?.[environment];
       expect(target?.secrets?.required).toEqual([
@@ -149,9 +151,15 @@ describe("locked runtime contracts", () => {
       ]);
       expect(target?.vars).toMatchObject({
         MODEL_ID: "@cf/openai/gpt-oss-120b",
-        RELAY_AGENT_HANDLE: "your_agent_handle",
+        RELAY_AGENT_HANDLE: "taniaspizza",
       });
       expect(target?.ai).toEqual({ binding: "AI" });
+      // Per-sender cap on inference spend; bindings don't inherit.
+      expect((target as { ratelimits?: unknown }).ratelimits).toEqual([{
+        name: "SENDER_LIMITER",
+        namespace_id: "1001",
+        simple: { limit: 12, period: 60 },
+      }]);
       expect(target?.durable_objects?.bindings).toEqual([{
         class_name: "RelayChatAgent",
         name: "RelayChat",
@@ -197,84 +205,27 @@ describe("locked runtime contracts", () => {
     );
   });
 
-  it("documents the locked update operation and an honest idempotent overlap", () => {
+  it("documents one-time webhook setup and the idempotency boundaries", () => {
     const readme = readFileSync("README.md", "utf8");
     const openapi = readFileSync("contracts/relay-openapi.yaml", "utf8");
     const reply = readFileSync("src/reply.ts", "utf8");
-    const updatePath = openapi.indexOf(
-      "  /v1/webhook-subscriptions/{subscriptionId}:",
-    );
-    const updateOperation = openapi.slice(
-      openapi.indexOf("    put:", updatePath),
-      openapi.indexOf("    delete:", updatePath),
-    );
-    const updateSchema = openapi.slice(
-      openapi.indexOf("    UpdateWebhookSubscriptionRequest:"),
-      openapi.indexOf("    VoiceMemoAttachment:"),
-    );
-    const migrationStart = readme.indexOf(
-      "## Move the existing staging webhook",
-    );
-    const migrationEnd = readme.indexOf("## Replace the model");
-    const migration = readme.slice(migrationStart, migrationEnd);
+    const index = readFileSync("src/index.ts", "utf8");
 
-    expect(updatePath).toBeGreaterThanOrEqual(0);
-    expect(updateOperation).toContain(
-      "operationId: updateWebhookSubscription",
+    expect(openapi).toContain("operationId: createWebhookSubscription");
+    expect(readme).toContain(
+      '-X POST "$RELAY_API_ORIGIN/v1/webhook-subscriptions"',
     );
-    expect(updateOperation).toContain(
-      '$ref: "#/components/schemas/UpdateWebhookSubscriptionRequest"',
+    expect(readme).toContain('"subscribed_events":["message.received"]');
+    expect(readme).toContain("`tanias-pizza-agent:<inbound-message-id>`");
+    expect(readme).toContain(
+      "`tanias-pizza-agent:catering:<booking-uid>:<status>`",
     );
-    for (const field of ["target_url", "subscribed_events", "is_active"]) {
-      expect(updateSchema).toContain(`        ${field}:`);
-    }
-    expect(migrationStart).toBeGreaterThanOrEqual(0);
-    expect(migrationEnd).toBeGreaterThan(migrationStart);
-    expect(migration).toContain(
-      "PUT /v1/webhook-subscriptions/{subscriptionId}",
-    );
-    expect(migration).toContain(
-      "$RELAY_API_ORIGIN/v1/webhook-subscriptions/$SUBSCRIPTION_ID",
-    );
-    expect(migration).not.toMatch(
-      /-X POST[\s\S]*\/v1\/webhook-subscriptions/u,
-    );
-    expect(migration).toContain('"target_url": "$NEW_WEBHOOK_URL"');
-    expect(migration).toContain(
-      "`target_url` set to `OLD_WEBHOOK_URL`",
-    );
-    expect(migration).toContain(
-      '"subscribed_events": ["message.received"]',
-    );
-    expect(migration).toContain('"is_active": true');
-    expect(migration).not.toContain('"is_active": false');
-    expect(migration).not.toContain("Now drain the old Worker");
-    expect(migration).toContain(
-      "no pending-delivery queue, delivery",
-    );
-    expect(migration).toContain(
-      "it is not a cross-Worker event lock",
-    );
-    expect(migration).toContain(
-      "`relay-agent-starter:<inbound-message-id>`",
-    );
-    expect(migration).toContain(
-      "documented maximum webhook retry horizon",
-    );
-    expect(migration).toContain(
-      "retain the old\nruntime indefinitely",
-    );
-    expect(migration).toContain(
-      "Retirement after a supplied horizon is a retention policy, not",
-    );
-    expect(migration).toContain(
-      "retain the new Worker and its state for the same",
-    );
-    expect(reply).toContain(
-      "return `relay-agent-starter:${messageId}`",
-    );
+    expect(reply).toContain("return `tanias-pizza-agent:${messageId}`");
     expect(reply).toContain(
       "idempotencyKey: () => `message:${deps.turn().messageId}`",
+    );
+    expect(index).toContain(
+      "`tanias-pizza-agent:catering:${decision.bookingUid}:${decision.status}`",
     );
     expect(openapi).toContain(
       "The same authenticated sender, key, and Message body return the original",

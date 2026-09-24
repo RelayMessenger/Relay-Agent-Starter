@@ -37,7 +37,7 @@ function requestOptions(signal?: AbortSignal): RequestOptions {
 }
 
 export function relayReplyIdempotencyKey(messageId: string): string {
-  return `relay-agent-starter:${messageId}`;
+  return `tanias-pizza-agent:${messageId}`;
 }
 
 export async function markRelayChatRead(
@@ -53,9 +53,25 @@ export async function sendRelayReply(
   text: string,
   signal?: AbortSignal,
 ): Promise<{ messageId: string; status: "sent" }> {
-  const idempotencyKey = relayReplyIdempotencyKey(turn.messageId);
-  const result = await relayClient(env).chats.messages.send(
+  return sendRelayText(
+    env,
     turn.chatId,
+    text,
+    relayReplyIdempotencyKey(turn.messageId),
+    signal,
+  );
+}
+
+/** One text Message, committed once per idempotency key. */
+export async function sendRelayText(
+  env: RelaySdkEnvironment,
+  chatId: string,
+  text: string,
+  idempotencyKey: string,
+  signal?: AbortSignal,
+): Promise<{ messageId: string; status: "sent" }> {
+  const result = await relayClient(env).chats.messages.send(
+    chatId,
     {
       message: {
         idempotency_key: idempotencyKey,

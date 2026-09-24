@@ -8,12 +8,12 @@ const targets = {
   production: {
     branch: "main",
     remote: "origin",
-    worker: "relay-think-agent-starter",
+    worker: "tanias-pizza-agent",
   },
   staging: {
     branch: "staging",
     remote: "origin",
-    worker: "relay-think-agent-starter-staging",
+    worker: "tanias-pizza-agent-staging",
   },
 };
 if (process.argv.length !== 3) {

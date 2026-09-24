@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "relay-think-agent-starter-development",
+  "name": "tanias-pizza-agent-development",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat"],
@@ -16,12 +16,21 @@
   },
   "vars": {
     "MODEL_ID": "@cf/openai/gpt-oss-120b",
-    "RELAY_AGENT_HANDLE": "your_agent_handle",
-    "RELAY_API_ORIGIN": "https://api.staging.relayapp.im"
+    "RELAY_AGENT_HANDLE": "taniaspizza",
+    "RELAY_API_ORIGIN": "https://api.staging.relayapp.im",
+    "CAL_EVENT_TYPE_ID": "",
+    "TOAST_RESTAURANT_GUID": ""
   },
   "ai": {
     "binding": "AI"
   },
+  "ratelimits": [
+    {
+      "name": "SENDER_LIMITER",
+      "namespace_id": "1001",
+      "simple": { "limit": 12, "period": 60 }
+    }
+  ],
   "durable_objects": {
     "bindings": [
       {
@@ -43,7 +52,7 @@
   ],
   "env": {
     "staging": {
-      "name": "relay-think-agent-starter-staging",
+      "name": "tanias-pizza-agent-staging",
       "secrets": {
         "required": [
           "RELAY_AGENT_TOKEN",
@@ -52,12 +61,21 @@
       },
       "vars": {
         "MODEL_ID": "@cf/openai/gpt-oss-120b",
-        "RELAY_AGENT_HANDLE": "your_agent_handle",
-        "RELAY_API_ORIGIN": "https://api.staging.relayapp.im"
+        "RELAY_AGENT_HANDLE": "taniaspizza",
+        "RELAY_API_ORIGIN": "https://api.staging.relayapp.im",
+        "CAL_EVENT_TYPE_ID": "",
+        "TOAST_RESTAURANT_GUID": ""
       },
       "ai": {
         "binding": "AI"
       },
+      "ratelimits": [
+        {
+          "name": "SENDER_LIMITER",
+          "namespace_id": "1001",
+          "simple": { "limit": 12, "period": 60 }
+        }
+      ],
       "durable_objects": {
         "bindings": [
           {
@@ -68,7 +86,7 @@
       }
     },
     "production": {
-      "name": "relay-think-agent-starter",
+      "name": "tanias-pizza-agent",
       "secrets": {
         "required": [
           "RELAY_AGENT_TOKEN",
@@ -77,12 +95,21 @@
       },
       "vars": {
         "MODEL_ID": "@cf/openai/gpt-oss-120b",
-        "RELAY_AGENT_HANDLE": "your_agent_handle",
-        "RELAY_API_ORIGIN": "https://api.relayapp.im"
+        "RELAY_AGENT_HANDLE": "taniaspizza",
+        "RELAY_API_ORIGIN": "https://api.relayapp.im",
+        "CAL_EVENT_TYPE_ID": "",
+        "TOAST_RESTAURANT_GUID": ""
       },
       "ai": {
         "binding": "AI"
       },
+      "ratelimits": [
+        {
+          "name": "SENDER_LIMITER",
+          "namespace_id": "1001",
+          "simple": { "limit": 12, "period": 60 }
+        }
+      ],
       "durable_objects": {
         "bindings": [
           {

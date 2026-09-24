@@ -258,12 +258,15 @@ function expectCanonicalTurn(
 function bindings(): Bindings {
   return {
     AI: {} as Ai,
+    CAL_EVENT_TYPE_ID: "",
     MODEL_ID: "@cf/openai/gpt-oss-120b",
-    RELAY_AGENT_HANDLE: "your_agent_handle",
+    RELAY_AGENT_HANDLE: "taniaspizza",
     RELAY_AGENT_TOKEN: "relay-test-token",
     RELAY_API_ORIGIN: "https://api.staging.relayapp.im",
     RELAY_WEBHOOK_SECRET: "whsec_dGVzdC1zZWNyZXQ=",
     RelayChat: {} as DurableObjectNamespace<RelayChatAgent>,
+    SENDER_LIMITER: { limit: async () => ({ success: true }) } as RateLimit,
+    TOAST_RESTAURANT_GUID: "",
   };
 }
 
@@ -480,7 +483,7 @@ describe("installed Worker", () => {
     const response = await SELF.fetch("https://starter.example/healthz");
     const body = await response.text();
     expect(response.status).toBe(200);
-    expect(JSON.parse(body)).toEqual({ ok: true });
+    expect(JSON.parse(body)).toMatchObject({ ok: true });
     expect(body).not.toContain("relay-test-token");
   });
 

@@ -1,4 +1,5 @@
 import {
+  action,
   Think,
   type Action,
   type TurnConfig,
@@ -14,13 +15,22 @@ import {
   decodeRelayThreadId,
 } from "@relaymessenger/chat-sdk-adapter";
 
+import { hasToolCall, type ToolSet } from "ai";
+
+import { cateringRequestInput, requestCatering } from "./catering";
 import type { Bindings } from "./env";
 import {
+  optionalConfiguration,
   requireRelayAgentHandle,
   requireRelayToken,
   requireRelayWebhookSecret,
 } from "./env";
+import { MAX_STEPS } from "./limits";
+import { SNAPSHOT_MENU } from "./menu";
 import { starterModel } from "./model";
+import { systemPrompt } from "./prompt";
+import { liveMenu } from "./toast";
+import { taniasTools } from "./tools";
 import {
   createReplyAction,
   markRelayChatRead,
@@ -32,6 +42,7 @@ export { ThinkMessengerStateAgent };
 const RELAY_WEBHOOK_PATH = "/webhooks/relay";
 // Relay's downstream Message idempotency key makes immediate reclaim safe.
 const ACTION_RETRY_LEASE_MS = 0;
+export { MAX_STEPS };
 const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
@@ -79,7 +90,7 @@ export class RelayChatAgent extends Think<Bindings> {
     terminalMessage: "",
   };
   override includeMcpTools = false;
-  override maxSteps = 1;
+  override maxSteps = MAX_STEPS;
   override sendReasoning = false;
   override workspaceBash = false;
 
@@ -88,11 +99,16 @@ export class RelayChatAgent extends Think<Bindings> {
   }
 
   override getSystemPrompt(): string {
-    return [
-      "You are a helpful agent in Relay Messenger.",
-      "Answer naturally and call reply exactly once with the complete response.",
-      "Do not emit a second answer after the reply Action.",
-    ].join(" ");
+    return systemPrompt(new Date());
+  }
+
+  override getTools(): ToolSet {
+    const env = optionalConfiguration(this.env);
+    return taniasTools({
+      env,
+      menu: () => liveMenu(env, SNAPSHOT_MENU),
+      now: () => new Date(),
+    });
   }
 
   override getActions(): Record<string, Action> {
@@ -100,6 +116,20 @@ export class RelayChatAgent extends Think<Bindings> {
       reply: createReplyAction({
         env: this.env,
         turn: () => this.relayTurn(),
+      }),
+      request_catering: action({
+        description:
+          "File a catering request on Tania's catering calendar for owner confirmation. "
+          + "Use only a start time returned by check_catering_availability, after the customer agreed to the details. "
+          + "Call at most once per customer message.",
+        inputSchema: cateringRequestInput,
+        idempotencyKey: () => `catering:${this.relayTurn().messageId}`,
+        execute: (input, context) => requestCatering(
+          optionalConfiguration(this.env),
+          input,
+          this.relayTurn().chatId,
+          context.signal,
+        ),
       }),
     };
   }
@@ -121,11 +151,25 @@ export class RelayChatAgent extends Think<Bindings> {
     }
 
     return {
-      activeTools: context.tools.reply ? ["reply"] : [],
-      maxSteps: 1,
+      activeTools: context.tools.reply ? Object.keys(context.tools) : [],
+      maxSteps: MAX_STEPS,
       sendReasoning: false,
+      // Every step is a tool call; the turn ends when the one reply lands.
+      stopWhen: hasToolCall("reply"),
       toolChoice: "required",
     };
+  }
+
+  /**
+   * Record a Message the Worker sent outside a model turn (a catering
+   * decision) so the next turn's history includes it. Never starts a turn.
+   */
+  async recordAgentNote(id: string, text: string): Promise<void> {
+    await this.addMessages([{
+      id,
+      parts: [{ text, type: "text" }],
+      role: "assistant",
+    }]);
   }
 
   private relayTurn(): RelayTurnIdentity {

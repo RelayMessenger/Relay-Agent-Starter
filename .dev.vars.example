@@ -3,3 +3,11 @@ RELAY_AGENT_TOKEN=replace-with-staging-agent-token
 
 # One-time signing_secret returned by POST /v1/webhook-subscriptions.
 RELAY_WEBHOOK_SECRET=whsec_replace-with-staging-webhook-secret
+
+# Optional: online catering through Tania's Cal.com (see scripts/setup-catering.mjs).
+# CAL_API_KEY=cal_live_replace
+# CAL_WEBHOOK_SECRET=replace-with-the-setup-webhook-secret
+
+# Optional: live menu from Toast Standard API access (read-only, menus:read).
+# TOAST_CLIENT_ID=replace
+# TOAST_CLIENT_SECRET=replace

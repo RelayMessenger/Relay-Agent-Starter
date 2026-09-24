@@ -16,6 +16,13 @@
       }
     ]
   },
+  "ratelimits": [
+    {
+      "name": "SENDER_LIMITER",
+      "namespace_id": "1001",
+      "simple": { "limit": 12, "period": 60 }
+    }
+  ],
   "migrations": [
     {
       "tag": "v1",
@@ -27,6 +34,7 @@
     "RELAY_AGENT_HANDLE": "starter_test",
     "RELAY_AGENT_TOKEN": "relay-test-token",
     "RELAY_API_ORIGIN": "https://api.staging.relayapp.im",
-    "RELAY_WEBHOOK_SECRET": "whsec_dGVzdC1zZWNyZXQ="
+    "RELAY_WEBHOOK_SECRET": "whsec_dGVzdC1zZWNyZXQ=",
+    "CAL_WEBHOOK_SECRET": "cal-test-secret"
   }
 }

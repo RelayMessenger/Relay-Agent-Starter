@@ -1,306 +1,174 @@
-# Relay Agent Starter
+# Tania's Pizza on Relay
 
-Minimal, forkable [Cloudflare Think](https://developers.cloudflare.com/agents/harnesses/think/)
-agent for [Relay Messenger](https://relayapp.im).
+The official [Relay Messenger](https://relayapp.im) agent for
+[Tania's Pizza](https://www.taniaspizza.com), Royal Oak, MI: **@taniaspizza**.
 
-It uses:
+Customers text it to ask about the menu, prices, hours and delivery, to get
+sent straight to the right item on Tania's Toast ordering page, and to request
+catering.
 
-- `@cloudflare/think@0.17.0` and native durable recovery;
-- `chatSdkMessenger()` with Relay's official Chat SDK adapter;
-- one root Think conversation per Relay Chat;
-- signed Standard Webhooks ingress at `POST /webhooks/relay`;
-- direct-message replies and canonical structured mentions in groups;
-- one buffered, idempotent Relay Message per model turn.
+It is built from the [Relay Agent Starter](https://github.com/RelayMessenger/Relay-Agent-Starter)
+([Cloudflare Think](https://developers.cloudflare.com/agents/harnesses/think/)):
 
-There are no application-owned event or send tables, polling loops, outbound
-WebSockets, partial Message bubbles, Message effects, or copied Relay client.
-Think owns conversation memory, fibers, recovery, and its Action ledger. The
-Relay packages own webhook verification and API calls.
+- one durable Think conversation per Relay Chat, fed by signed Relay webhooks;
+- read-only tools for the menu, hours and catering availability;
+- two Actions with side effects, each idempotent: `reply` (the one Relay
+  Message per turn) and `request_catering` (a pending Cal.com booking);
+- Workers AI for the model, billed to the Cloudflare account that hosts it.
 
-## How a Message moves
+## Ownership
 
-1. Relay sends a signed `message.received` webhook.
-2. `@relaymessenger/chat-sdk-adapter` verifies the exact raw body before parsing.
-3. After verification, the Worker routes the Chat UUID to one durable root
-   Think conversation. The adapter verifies the forwarded raw body again.
-4. Direct Messages start turns. Group Messages start turns only when a text
-   part's structured `mention` matches the receiving Chat's `owner_handle`.
-5. Think runs the model in a recoverable fiber. The model must call the native
-   `reply` Action once.
-6. The Action commits one complete Message through
-   `@relaymessenger/sdk@0.3.1-staging.2`. Its stable idempotency key is derived
-   from the inbound Relay Message ID.
+Relay built and configures this agent. **Tania's owns it**: it deploys to
+Tania's own Cloudflare account, Tania's pays for that account's Workers and
+Workers AI usage, and the catering calendar and Toast credentials are Tania's.
+Relay itself stays free and never proxies or bills inference.
 
-Think's streamed response surface is intentionally limited to zero visible
-characters. Relay therefore never receives a draft or a second fallback
-Message; only the complete Action payload is committed.
+Expected running cost at a single pizzeria's volume: Workers Paid is $5/month.
+Workers AI bills per token (`@cf/openai/gpt-oss-120b` is $0.35 / $0.75 per
+million input/output tokens on Cloudflare's pricing page); a typical 6-turn
+chat is well under a cent.
 
-If an isolate dies after Relay commits the Message but before Think settles the
-Action ledger row, Think can reclaim that pending Action immediately. The retry
-uses the same Relay idempotency key and body, so Relay replays the existing
-Message instead of creating a duplicate.
+## What the agent does and doesn't do
 
-## Prerequisites
+| Customer asks | Agent |
+| --- | --- |
+| Menu, prices, sizes, crusts, toppings | Answers only from the menu tools; never invents items or prices |
+| "I want a large deluxe" | Sends the item's Toast link; it opens inside Relay's in-app browser (Safari View Controller), where the customer customizes, pays (card or Apple Pay), picks pickup or delivery, and earns Toast Rewards |
+| Hours / open now | Answers from the owner-confirmed hours in `src/business.ts` |
+| Delivery | Within about 3 miles; Toast checkout confirms the address; otherwise pickup or the delivery apps |
+| Allergies | Shares menu facts (gluten-free crust, vegan cheese/pepperoni) but never promises allergen safety; serious allergies → call the store |
+| Beer, wine, tobacco | Never sells or recommends; in-store only with ID. Age-restricted categories are invisible to the tools |
+| Catering | Offers only open slots from Tania's Cal.com calendar, collects the details, files a **pending** request. Tania's confirms/declines in Cal.com; the agent messages the customer with the decision |
+| Complaints, refunds, anything else | Apologizes and gives (248) 288-4774 |
 
-- Node.js 22.22.3 or newer
-- a Cloudflare account with Workers AI
-- a staging agent and Agent Token from Relay Console
+It never places, pays for or confirms an order.
 
-The adapter release used by this staging branch is
-`@relaymessenger/chat-sdk-adapter@0.3.2-staging.0`, versioned and published
-to npm from `Relay-SDK` `aac334c5081de6e6498963908c3965c843ebc1cf`. An earlier
-revision of its runtime implementation was independently audited at
-`f90e312aeecefa9c929398a56be77441e8c2137c`; the releases since then have not
-been re-audited.
+### Why a link, not in-chat checkout
 
-## Local setup
+Toast's restaurant self-service API access is read-only; creating orders needs
+Toast's Partner program or a custom integration arranged through Tania's Toast
+representative. Driving Toast checkout with a bot browser is ruled out: Toast's
+`robots.txt` disallows `/*/v3/checkout` and `/*/v3/cart`, the agent would have
+to handle card data (PCI DSS), and 3-D Secure challenges need the customer.
+Item links keep payment, Apple Pay and Toast Rewards on Toast's own page.
 
-Install the exact registry artifacts from `package-lock.json`:
+## Configuration
 
-```sh
-npm ci
-```
+Non-secret settings (`wrangler.jsonc`, per environment):
 
-Copy the local secret template:
+| Var | Value |
+| --- | --- |
+| `RELAY_AGENT_HANDLE` | `taniaspizza` |
+| `RELAY_API_ORIGIN` | `https://api.staging.relayapp.im` (staging) / `https://api.relayapp.im` (production) |
+| `MODEL_ID` | `@cf/openai/gpt-oss-120b` |
+| `CAL_EVENT_TYPE_ID` | Cal.com "Catering request" event type ID, from `scripts/setup-catering.mjs` (blank = catering by phone) |
+| `TOAST_RESTAURANT_GUID` | Tania's Toast restaurant GUID (blank = bundled menu snapshot) |
 
-```sh
-cp .dev.vars.example .dev.vars
-```
+Secrets (`npx wrangler secret put NAME --env <env>`):
 
-Set both values in `.dev.vars`:
+| Secret | Required | From |
+| --- | --- | --- |
+| `RELAY_AGENT_TOKEN` | yes | Relay Console → @taniaspizza → Agent Tokens (shown once) |
+| `RELAY_WEBHOOK_SECRET` | yes | `signing_secret` from creating the webhook subscription (shown once) |
+| `CAL_API_KEY` | for online catering | Tania's Cal.com → Settings → Developer → API keys |
+| `CAL_WEBHOOK_SECRET` | for catering decisions | the secret you pass to `scripts/setup-catering.mjs` |
+| `TOAST_CLIENT_ID`, `TOAST_CLIENT_SECRET` | for a live menu | Toast Web → Integrations → Toast API access (Standard, read-only, needs `menus:read`) |
 
-```dotenv
-RELAY_AGENT_TOKEN=replace-with-staging-agent-token
-RELAY_WEBHOOK_SECRET=whsec_replace-with-staging-webhook-secret
-```
+`GET /healthz` reports missing required settings and which integrations are
+live, e.g. `{"ok":true,"integrations":{"menu":"snapshot","catering":"phone","cateringWebhook":false}}`.
 
-The non-secret staging settings are in `wrangler.jsonc`:
+### Menu
 
-```text
-RELAY_API_ORIGIN=https://api.staging.relayapp.im
-RELAY_AGENT_HANDLE=your_agent_handle
-MODEL_ID=@cf/openai/gpt-oss-120b
-```
-
-Change `RELAY_AGENT_HANDLE` to the agent's Relay Handle. Start the Worker:
-
-```sh
-npm run dev
-```
-
-For a public local webhook URL, use your normal HTTPS tunnel and register its
-exact `/webhooks/relay` path.
-
-## Move the existing staging webhook
-
-This Think starter intentionally uses a new
-`relay-think-agent-starter-staging` Worker instead of the pre-Think
-`relay-agent-starter-staging`. Do not deploy this runtime over the old Durable
-Object namespace.
-
-The migration must move the existing Relay subscription. Do **not** `POST` a
-second subscription. Relay v1 updates a subscription with
-`PUT /v1/webhook-subscriptions/{subscriptionId}` and the fields `target_url`,
-`subscribed_events`, and `is_active`. That update does not return a new
-`signing_secret`; the new Worker must use the existing subscription's saved
-secret.
-
-Relay v1 exposes subscription settings, but no pending-delivery queue, delivery
-attempt list, queue depth, or maximum retry horizon. A subscription read, Chat
-snapshot, quiet log, or zero application work count therefore cannot prove that
-Relay has no older delivery left for the old URL. Do not deactivate the
-subscription and call the old Worker drained; `is_active: false` has no
-contractual buffering guarantee and does not account for already-pending
-deliveries.
-
-The safest upgrade preserves the existing Worker URL, Durable Object identity,
-and event state. Use that path only when the new code and migrations are
-compatible with the old namespace. The pre-Think namespace is not compatible
-with this starter, so moving to the new Worker requires an idempotent overlap.
-
-During overlap, a Relay event may execute in both durable states. Think's
-Action ledger key `message:<inbound-message-id>` deduplicates reply retries
-inside one state; it is not a cross-Worker event lock. The cross-Worker boundary
-is Relay's authenticated Message idempotency key
-`relay-agent-starter:<inbound-message-id>`. This starter has no other
-user-visible Action. If both Workers send the same body, Relay replays the
-existing Message. If their bodies differ, Relay returns an idempotency conflict
-instead of committing a second Message. The winning Message remains canonical,
-but the losing Action can remain failed and must be observed.
-
-Before moving the target, verify that the old runtime:
-
-- stays online with its Durable Objects, schedules, secrets, and old URL;
-- uses the same Agent Token and saved webhook signing secret;
-- derives the exact same outbound idempotency key from the inbound Relay
-  Message ID; and
-- has no non-idempotent side effect outside that Relay Message send.
-
-If any condition is false, do not cut over. First ship and audit a compatibility
-release on the old runtime that adds these boundaries without changing its
-state identity, or keep the old subscription and Worker unchanged.
-
-Deploy the new Worker, set the existing secrets interactively, and require a
-healthy response before changing the subscription:
+`data/menu.snapshot.json` is Tania's full public Toast menu with every item's
+direct link, captured by `scripts/snapshot-menu.mjs` (Playwright; read-only,
+never touches cart or checkout). Refresh it whenever the menu changes:
 
 ```sh
-npx wrangler secret put RELAY_AGENT_TOKEN --env staging
-npx wrangler secret put RELAY_WEBHOOK_SECRET --env staging
-npm run deploy:staging
-curl -fsS \
-  "https://relay-think-agent-starter-staging.<your-subdomain>.workers.dev/healthz"
+node scripts/snapshot-menu.mjs   # see the header comment for Playwright setup
 ```
 
-Keep the old Worker deployed. Set these migration variables, then list the
-subscriptions and identify the one whose `target_url` is `OLD_WEBHOOK_URL`:
+With Toast Standard API access configured, the agent reads live prices from
+Toast's menus v2 API (cached 5 minutes) and keeps the snapshot's item links by
+GUID; any Toast failure falls back to the snapshot.
+
+### Catering
+
+Catering uses a Cal.com event type that enforces owner confirmation on every
+request, a per-day cap, minimum notice and the intake questions. Create it
+(and the decision webhook) in Tania's Cal.com account:
 
 ```sh
-export RELAY_API_ORIGIN="https://api.staging.relayapp.im"
-export OLD_WEBHOOK_URL="https://relay-agent-starter-staging.<your-subdomain>.workers.dev/webhooks/relay"
-export NEW_WEBHOOK_URL="https://relay-think-agent-starter-staging.<your-subdomain>.workers.dev/webhooks/relay"
-export SUBSCRIPTION_ID="<existing-subscription-id>"
-
-curl -fsS \
-  "$RELAY_API_ORIGIN/v1/webhook-subscriptions" \
-  -H "Authorization: Bearer $RELAY_AGENT_TOKEN"
+CAL_API_KEY=cal_live_... node scripts/setup-catering.mjs \
+  --webhook-url https://<worker-host>/webhooks/cal \
+  --webhook-secret "$(openssl rand -hex 32)" \
+  --min-notice-hours 48 --max-per-day 2 --apply
 ```
 
-Confirm there is exactly one matching subscription and preserve its complete
-settings. If there is none, this is a fresh registration rather than a
-migration; follow the Relay webhook guide. If there is more than one, stop and
-resolve the duplicates before continuing.
+Without `--apply` it prints the exact requests and changes nothing. Set the
+printed event type ID as `CAL_EVENT_TYPE_ID` and the webhook secret as
+`CAL_WEBHOOK_SECRET`. The defaults (48 hours notice, 2 per day) are
+placeholders until Tania's confirms its real rules.
 
-Keep the subscription active and move the **same** subscription in one update.
-Because the operation replaces settings, send all three fields:
+## Launch runbook
 
-```sh
-curl -fsS -X PUT \
-  "$RELAY_API_ORIGIN/v1/webhook-subscriptions/$SUBSCRIPTION_ID" \
-  -H "Authorization: Bearer $RELAY_AGENT_TOKEN" \
-  -H "Content-Type: application/json" \
-  --data-binary @- <<JSON
-{
-  "target_url": "$NEW_WEBHOOK_URL",
-  "subscribed_events": ["message.received"],
-  "is_active": true
-}
-JSON
-```
+1. **Accounts (Tania's).** Cloudflare account on Workers Paid with Workers AI;
+   Cal.com account for catering; optionally Toast Standard API access.
+2. **Relay (Tania's organization in Relay Console).** Create the agent with
+   handle `taniaspizza`, name "Tania's Pizza", logo, about text and greeting;
+   apply for the verified badge; create an Agent Token.
+3. **Deploy.** `npm ci`, set the secrets above, then `npm run deploy:staging`
+   (or production). Check `/healthz`.
+4. **Webhook.** Create the Relay webhook subscription once and store its
+   `signing_secret` as `RELAY_WEBHOOK_SECRET`:
 
-Read it back and save the response proving the same `id`, the new `target_url`,
-and `is_active: true`. Send one uniquely identifiable Message and verify the
-new Worker can accept it and commit a reply. That canary verifies the new path;
-it does not prove that the old path has no pending delivery.
+   ```sh
+   curl -fsS -X POST "$RELAY_API_ORIGIN/v1/webhook-subscriptions" \
+     -H "Authorization: Bearer $RELAY_AGENT_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"target_url":"https://<worker-host>/webhooks/relay","subscribed_events":["message.received"]}'
+   ```
 
-Keep the old URL, runtime, and all old Durable Object state available for at
-least Relay's documented maximum webhook retry horizon measured from the
-successful `PUT`. The locked v1 contract does not publish that horizon. Unless
-Relay supplies an authoritative horizon for this subscription, retain the old
-runtime indefinitely; do not infer one from logs or counters and do not claim a
-drained queue. Retirement after a supplied horizon is a retention policy, not
-proof that a queue was empty.
+5. **Catering.** Run `scripts/setup-catering.mjs` as above.
+6. **Promote.** Share `https://relayapp.im/@taniaspizza` and its QR code
+   (Relay's share sheet) on boxes, the counter, Instagram and Facebook. New
+   customers are sent to the App Store and land in this chat after install.
 
-Rollback uses the same active subscription and the same three-field `PUT`, with
-`target_url` set to `OLD_WEBHOOK_URL` and `is_active: true`. Do not deactivate
-or create a second subscription. Because deliveries already pending for the new
-URL are equally unknowable, retain the new Worker and its state for the same
-documented horizon after rollback. The identical Message idempotency boundary
-must remain enabled on both sides for the entire overlap.
+## Delivery guarantees
 
-## Replace the model
-
-[`src/model.ts`](src/model.ts) is the model seam:
-
-```ts
-export function starterModel(env) {
-  return env.MODEL_ID;
-}
-```
-
-Return another Workers AI model ID, or replace the function with any AI SDK
-`LanguageModel`. Relay ingress, group routing, recovery, and canonical delivery
-do not need to change.
-
-Change the short system prompt in [`src/agent.ts`](src/agent.ts) for product
-behavior. Keep the instruction to call `reply` once unless you also replace the
-delivery design.
+Inherited from the starter: the Worker verifies Standard Webhooks over the
+exact raw body before routing; each Chat gets one durable Think conversation;
+the turn ends when the single `reply` Action commits. The reply's Relay
+idempotency key is `tanias-pizza-agent:<inbound-message-id>`, so a retried
+Action replays the same Message instead of sending a second one. Catering
+decisions use `tanias-pizza-agent:catering:<booking-uid>:<status>`, so Cal.com
+retries are safe. Each turn is capped at 6 model steps, and each person at 12
+messages a minute (Workers Rate Limiting), bounding Tania's inference bill.
 
 ## Validate
 
 ```sh
 npm run types:check
 npm run check
-npm run test:unit
-npm run test:workerd
+npm run test:unit      # hours, menu, catering, Toast, prompt, contracts, deploy guard
+npm run test:workerd   # signed webhooks, multi-step tool turns, Cal.com webhook, recovery
 npm run test:installed
 npm run dry-run
+npm run eval           # live-model conversations; needs a model endpoint (see scripts/eval.mjs)
 ```
-
-The suites cover the contract lock, dependency pins, deployment isolation and
-non-inherited Wrangler bindings, migration operation, model seam, signed direct
-and mentioned-group model/Action turns, unmentioned-group gating, stale Action
-recovery without duplicate delivery, and a clean registry-installed template.
 
 ## Guarded deployments
 
-Deployment is intentionally manual and branch guarded:
-
-```sh
-git switch staging
-git pull --ff-only origin staging
-npm run test:all
-npm run deploy:staging
-```
-
-Production uses the explicit production environment from an exact reviewed
-`main`:
-
-```sh
-git switch main
-git pull --ff-only origin main
-npm run test:all
-npm run deploy:production
-```
-
 `deploy:staging` requires environment `staging`, branch `staging`, and the
-`relay-think-agent-starter-staging` Worker. `deploy:production` requires
-environment `production`, branch `main`, and the
-`relay-think-agent-starter` Worker. Both disable interactive Git prompts, fetch
-the exact `refs/heads/<branch>` from the configured `origin` into an isolated
-verification ref, suppress fetch diagnostics that could expose a credentialed
-remote URL, and compare the fetched commit to one final clean branch/HEAD
-snapshot immediately before Wrangler starts. Mutable or stale local
-`origin/*` refs are never trusted.
-
-Wrangler bindings and vars do not inherit into named environments, so the
-default, staging, and production configurations each declare their complete
-bindings. The default target is the non-production
-`relay-think-agent-starter-development`; therefore a bare `wrangler deploy`
-cannot overwrite `relay-think-agent-starter`. There is deliberately no bare
-`deploy` package script. The repository contains no automatic deploy workflow.
-Run neither guarded command without your own review and credentials.
+`tanias-pizza-agent-staging` Worker. `deploy:production` requires environment
+`production`, branch `main`, and the `tanias-pizza-agent` Worker. Both fetch
+the exact branch from `origin` and refuse to deploy a dirty or stale tree. A
+bare `wrangler deploy` targets the non-production
+`tanias-pizza-agent-development`.
 
 ## Contract lock
 
-This revision is tested against:
-
-- Relay Server `a25111520f7fc92c25ecd945d1dfc9afa9f60a1f`
-- Relay Chat SDK `aac334c5081de6e6498963908c3965c843ebc1cf`
-- `@relaymessenger/chat-sdk-adapter@0.3.2-staging.0` npm integrity
-  `sha512-g12qLaFH1RLrBPcBtjpIHOB/OzwNB18mgxoSO5a3OBhEubHtxgGB5c14vtF+TUetHNDewLaKFiwciFpZJ6Lq2A==`
-- OpenAPI SHA-256
-  `9f3e662a13cd0e6b16a52fba4b53c75fe5817d134dcf152e00b054699c37839c`
-- Relay API `v1`
-- Relay webhook payload version `2026-08-30`
-
-The unchanged OpenAPI fixture is under [`contracts/`](contracts/).
-
-## Documentation
-
-- [Relay developer docs](https://docs.relayapp.im)
-- [Relay + Cloudflare integration](https://docs.relayapp.im/integrations/cloudflare)
-- [Relay webhook guide](https://docs.relayapp.im/guides/webhooks)
-- [Cloudflare Think](https://developers.cloudflare.com/agents/harnesses/think/)
-- [Think Messengers](https://developers.cloudflare.com/agents/harnesses/think/messengers/)
-- [Think durable recovery](https://developers.cloudflare.com/agents/harnesses/think/recovery/)
-- [Workers secrets](https://developers.cloudflare.com/workers/configuration/secrets/)
+Tested against Relay API `v1`, webhook payload version `2026-08-30`, and the
+unchanged OpenAPI fixture under [`contracts/`](contracts/) (SHA-256
+`9f3e662a13cd0e6b16a52fba4b53c75fe5817d134dcf152e00b054699c37839c`), with
+`@relaymessenger/chat-sdk-adapter@0.3.2-staging.0` and
+`@relaymessenger/sdk@0.3.1-staging.2`.

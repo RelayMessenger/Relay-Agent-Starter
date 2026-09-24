@@ -1,9 +1,9 @@
 {
-  "name": "relay-agent-starter",
+  "name": "tanias-pizza-agent",
   "version": "0.1.0",
   "type": "module",
   "private": true,
-  "description": "Minimal Cloudflare Think starter for a Relay Messenger agent.",
+  "description": "Tania's Pizza agent for Relay Messenger, built on Cloudflare Think.",
   "keywords": [
     "relay",
     "cloudflare",
@@ -39,7 +39,8 @@
     "test:unit": "vitest run --config vitest.config.ts",
     "test:workerd": "vitest run --config vitest.workerd.config.ts",
     "test:installed": "node scripts/test-installed-template.mjs",
-    "test:all": "npm run types:check && npm run check && npm test && npm run test:installed && npm run dry-run"
+    "test:all": "npm run types:check && npm run check && npm test && npm run test:installed && npm run dry-run",
+    "eval": "vitest run --config vitest.eval.config.ts"
   },
   "dependencies": {
     "@cloudflare/think": "0.17.0",
@@ -51,6 +52,7 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
+    "@ai-sdk/openai-compatible": "3.0.41",
     "@cloudflare/vitest-plugin": "1.1.2",
     "@types/node": "22.18.0",
     "typescript": "5.9.3",
@@ -58,7 +60,7 @@
     "wrangler": "4.127.1"
   },
   "cloudflare": {
-    "label": "Relay Think Agent",
+    "label": "Tania's Pizza Relay Agent",
     "products": [
       "Workers",
       "Workers AI",

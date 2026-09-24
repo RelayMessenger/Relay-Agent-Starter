@@ -1,5 +1,41 @@
+import type { CateringConfiguration } from "./catering";
+import { cateringConfigured } from "./catering";
+import type { ToastConfiguration } from "./toast";
+import { toastConfigured } from "./toast";
+
 /** Bindings are generated from wrangler.jsonc by `wrangler types`. */
 export type Bindings = Cloudflare.Env;
+
+/**
+ * Optional integrations. Secrets are set with `wrangler secret put`; the
+ * agent works without them (bundled menu snapshot, catering by phone).
+ */
+export type OptionalConfiguration = ToastConfiguration & CateringConfiguration;
+
+export function optionalConfiguration(env: object): OptionalConfiguration {
+  const values = env as Record<string, unknown>;
+  const pick = (name: keyof OptionalConfiguration) =>
+    typeof values[name] === "string" ? (values[name] as string) : undefined;
+  return {
+    CAL_API_KEY: pick("CAL_API_KEY"),
+    CAL_API_ORIGIN: pick("CAL_API_ORIGIN"),
+    CAL_EVENT_TYPE_ID: pick("CAL_EVENT_TYPE_ID"),
+    CAL_WEBHOOK_SECRET: pick("CAL_WEBHOOK_SECRET"),
+    TOAST_API_HOSTNAME: pick("TOAST_API_HOSTNAME"),
+    TOAST_CLIENT_ID: pick("TOAST_CLIENT_ID"),
+    TOAST_CLIENT_SECRET: pick("TOAST_CLIENT_SECRET"),
+    TOAST_RESTAURANT_GUID: pick("TOAST_RESTAURANT_GUID"),
+  };
+}
+
+export function integrationStatus(env: object) {
+  const config = optionalConfiguration(env);
+  return {
+    catering: cateringConfigured(config) ? "cal.com" : "phone",
+    cateringWebhook: Boolean(config.CAL_WEBHOOK_SECRET?.trim()),
+    menu: toastConfigured(config) ? "toast-live" : "snapshot",
+  };
+}
 
 export interface RelayConfiguration {
   MODEL_ID?: string;
