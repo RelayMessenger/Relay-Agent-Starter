@@ -110,19 +110,37 @@ export const cateringRequestInput = z.object({
     .describe("Food-ready time, store local, YYYY-MM-DDTHH:MM, taken from check_catering_availability"),
   headcount: z.number().int().min(1).max(2000),
   fulfillment: z.enum(["pickup", "delivery"]),
-  address: z.string().trim().max(300).optional().describe("Required for delivery"),
+  // Required (empty for pickup): small models reliably fill required fields
+  // and skip optional ones, and delivery can't be filed without it.
+  address: z.string().trim().max(300)
+    .describe("Delivery street address from the customer; empty string for pickup"),
   menu: z.string().trim().min(1).max(1500).describe("What they want: pizzas, sides, drinks"),
   dietary: z.string().trim().max(500).optional().describe("Dietary needs and allergies"),
   utensils: z.boolean().optional().describe("Plates, napkins and utensils needed"),
   budget: z.string().trim().max(100).optional(),
   notes: z.string().trim().max(1000).optional(),
-}).strict().superRefine((value, context) => {
-  if (value.fulfillment === "delivery" && !value.address) {
-    context.addIssue({ code: "custom", message: "Delivery needs an address", path: ["address"] });
-  }
-});
+}).strict();
 
 export type CateringRequest = z.infer<typeof cateringRequestInput>;
+
+export const PENDING_STATUS = "pending_owner_confirmation";
+
+/**
+ * Checks the schema can't express to the model (a conditional field). Returns
+ * a tool result telling the model what to fix, or null when the request can
+ * be filed. Sent back as a result rather than a validation error so the
+ * model reads the instruction and retries in the same turn.
+ */
+export function cateringRequestProblem(request: CateringRequest): Record<string, unknown> | null {
+  if (request.fulfillment === "delivery" && !request.address?.trim()) {
+    return {
+      status: "needs_address",
+      instruction:
+        "Delivery needs the street address. Call request_catering again with the address the customer gave, or ask them for it.",
+    };
+  }
+  return null;
+}
 
 export function toE164(phone: string): string | undefined {
   const digits = phone.replace(/\D/gu, "");
@@ -140,7 +158,7 @@ export function bookingBody(env: CateringConfiguration, request: CateringRequest
     menu: request.menu,
     phone: phoneNumber ?? request.phone,
   };
-  if (request.address) responses.address = request.address;
+  if (request.fulfillment === "delivery" && request.address) responses.address = request.address;
   if (request.dietary) responses.dietary = request.dietary;
   if (request.utensils !== undefined) responses.utensils = request.utensils ? "Yes" : "No";
   if (request.budget) responses.budget = request.budget;
@@ -168,6 +186,8 @@ export async function requestCatering(
   fetcher: typeof fetch = fetch,
 ): Promise<Record<string, unknown>> {
   if (!cateringConfigured(env)) return NOT_CONFIGURED;
+  const problem = cateringRequestProblem(request);
+  if (problem) return problem;
   const response = await fetcher(`${origin(env)}/v2/bookings`, {
     body: JSON.stringify(bookingBody(env, request, chatId)),
     headers: {
@@ -189,7 +209,7 @@ export async function requestCatering(
   }
   const body = await response.json<{ data?: { uid?: string; status?: string } }>();
   return {
-    status: "pending_owner_confirmation",
+    status: PENDING_STATUS,
     requestId: body.data?.uid ?? null,
     instruction:
       "Tell the customer the request is in and NOT yet confirmed: Tania's will confirm or follow up with a quote, and you will message them here when they decide.",

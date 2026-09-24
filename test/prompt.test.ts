@@ -42,3 +42,27 @@ describe("per-sender rate limit key", () => {
     expect(rateLimitedSenderFromSignedPayload("{")).toBeNull();
   });
 });
+
+describe("per-step reply policy", async () => {
+  const { forcedReplyStep, MAX_STEPS } = await import("../src/limits");
+  const reply = { activeTools: ["reply"], toolChoice: "required" };
+
+  it("leaves early steps free", () => {
+    expect(forcedReplyStep(0, [])).toBeUndefined();
+    expect(forcedReplyStep(2, [{ toolResults: [{ toolName: "search_menu" }] }])).toBeUndefined();
+  });
+
+  it("forces the reply only after a catering request is actually filed", () => {
+    const filed = { output: { status: "pending_owner_confirmation" }, toolName: "request_catering" };
+    expect(forcedReplyStep(2, [{ toolResults: [filed] }])).toEqual(reply);
+    // Rejected by validation (no result) or sent back for an address.
+    expect(forcedReplyStep(2, [{ toolResults: [] }])).toBeUndefined();
+    expect(forcedReplyStep(2, [{
+      toolResults: [{ output: { status: "needs_address" }, toolName: "request_catering" }],
+    }])).toBeUndefined();
+  });
+
+  it("forces the reply on the last allowed step", () => {
+    expect(forcedReplyStep(MAX_STEPS - 1, [])).toEqual(reply);
+  });
+});

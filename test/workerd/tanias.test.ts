@@ -249,27 +249,31 @@ describe("Cal.com catering decisions", () => {
 });
 
 describe("per-sender rate limit", () => {
-  it("acknowledges but does not route a person's 13th message within a minute", async () => {
+  it("acknowledges but stops routing a person's messages past 12 a minute", async () => {
     // Unmentioned group Messages never start a model turn, so this isolates
-    // the Worker's limiter from model behavior.
+    // the Worker's limiter from model behavior. The limiter uses fixed
+    // 60-second windows, so a run may straddle one boundary: the first 12
+    // always pass, and a rejection must come within two windows' worth.
     vi.stubGlobal("fetch", vi.fn(async () => {
       throw new Error("no Relay calls expected");
     }));
-    const senderId = uuid("01993d59");
-    const chatId = uuid("01993d5a");
+    const senderId = crypto.randomUUID();
+    const chatId = crypto.randomUUID();
     const bodies: unknown[] = [];
-    for (let index = 0; index < 13; index += 1) {
+    for (let index = 0; index < 25; index += 1) {
       const response = await SELF.fetch(await relayWebhook({
         chatId,
         isGroup: true,
-        messageId: uuid("01993d5b"),
+        messageId: crypto.randomUUID(),
         senderId,
         text: "just chatting",
       }));
       expect(response.status).toBe(200);
-      bodies.push(await response.json());
+      const body = await response.json();
+      bodies.push(body);
+      if ((body as { ignored?: string }).ignored === "rate_limited") break;
     }
     expect(bodies.slice(0, 12).every((b) => (b as { acknowledged?: boolean }).acknowledged)).toBe(true);
-    expect(bodies[12]).toEqual({ ignored: "rate_limited" });
-  }, 60_000);
+    expect(bodies.at(-1)).toEqual({ ignored: "rate_limited" });
+  }, 120_000);
 });

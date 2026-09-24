@@ -5,6 +5,7 @@ import {
   cateringAvailability,
   cateringDecision,
   cateringRequestInput,
+  cateringRequestProblem,
   NOT_CONFIGURED,
   requestCatering,
   toE164,
@@ -69,8 +70,18 @@ describe("catering availability", () => {
 });
 
 describe("catering request", () => {
-  it("requires an address for delivery", () => {
-    expect(cateringRequestInput.safeParse({ ...REQUEST, address: undefined }).success).toBe(false);
+  it("sends a delivery without an address back to the model, not to Cal.com", async () => {
+    const fetcher = vi.fn();
+    const result = await requestCatering(
+      CONFIG,
+      { ...REQUEST, address: "" },
+      CHAT,
+      undefined,
+      fetcher as unknown as typeof fetch,
+    );
+    expect(result).toMatchObject({ status: "needs_address" });
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(cateringRequestProblem({ ...REQUEST, address: "", fulfillment: "pickup" })).toBeNull();
   });
 
   it("normalizes US phone numbers to E.164", () => {

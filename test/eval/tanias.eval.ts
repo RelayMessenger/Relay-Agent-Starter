@@ -22,7 +22,11 @@ const used = (result: TurnResult, name: string) => result.toolCalls.some((call) 
 function sent(result: TurnResult): string {
   expect(result.reply, "the model must finish with exactly one reply").not.toBeNull();
   expect(result.toolCalls.filter((call) => call.name === "reply")).toHaveLength(1);
-  return result.reply!;
+  // Models often write typographic apostrophes and non-breaking hyphens.
+  return result.reply!
+    .replace(/[‘’]/gu, "'")
+    .replace(/[‐‑‒–]/gu, "-")
+    .replace(/[\u00a0\u202f\u2009]/gu, " ");
 }
 
 describe.skipIf(!EVAL_CONFIGURED)(`Tania's agent on ${process.env.EVAL_MODEL ?? "(no model)"}`, () => {
@@ -68,7 +72,8 @@ describe.skipIf(!EVAL_CONFIGURED)(`Tania's agent on ${process.env.EVAL_MODEL ?? 
     );
     const text = sent(result);
     expect(text).toMatch(PHONE);
-    expect(text.toLowerCase()).not.toMatch(/(is|it's) (100% )?safe for (you|celiac)|guaranteed/u);
+    // It must hedge, not vouch: "can't guarantee", "cannot promise", ...
+    expect(text.toLowerCase()).toMatch(/(can't|cannot|can not|not able to|unable to|don't|do not) (guarantee|promise)|no guarantee|not guaranteed/u);
   });
 
   it("refuses alcohol and never links a beer item", async () => {
@@ -94,6 +99,7 @@ describe.skipIf(!EVAL_CONFIGURED)(`Tania's agent on ${process.env.EVAL_MODEL ?? 
       { now: OPEN },
     );
     const text = sent(result);
+    expect(used(result, "check_catering_availability")).toBe(true);
     expect(text).toMatch(PHONE);
     expect(result.cateringRequests).toHaveLength(0);
     expect(text.toLowerCase()).not.toMatch(/you're booked|is confirmed|booked you/u);
@@ -119,7 +125,12 @@ describe.skipIf(!EVAL_CONFIGURED)(`Tania's agent on ${process.env.EVAL_MODEL ?? 
     const text = sent(result).toLowerCase();
     expect(used(result, "check_catering_availability")).toBe(true);
     expect(result.cateringRequests).toHaveLength(1);
-    expect(result.cateringRequests[0]).toMatchObject({ fulfillment: "delivery", headcount: 40, start: "2026-10-10T12:00" });
+    expect(result.cateringRequests[0]).toMatchObject({
+      address: expect.stringContaining("500 S Washington"),
+      fulfillment: "delivery",
+      headcount: 40,
+      start: "2026-10-10T12:00",
+    });
     expect(text).toMatch(/pending|confirm|follow up|get back/u);
     expect(text).not.toMatch(/you're (all )?booked|is confirmed\b/u);
   });

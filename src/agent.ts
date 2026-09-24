@@ -3,6 +3,7 @@ import {
   Think,
   type Action,
   type ChatResponseResult,
+  type PrepareStepContext,
   type TurnConfig,
   type TurnContext,
 } from "@cloudflare/think";
@@ -26,7 +27,7 @@ import {
   requireRelayToken,
   requireRelayWebhookSecret,
 } from "./env";
-import { MAX_STEPS } from "./limits";
+import { forcedReplyStep, MAX_STEPS } from "./limits";
 import { SNAPSHOT_MENU } from "./menu";
 import { starterModel } from "./model";
 import { systemPrompt } from "./prompt";
@@ -188,6 +189,10 @@ export class RelayChatAgent extends Think<Bindings> {
       stopWhen: hasToolCall("reply"),
       toolChoice: "required",
     };
+  }
+
+  override beforeStep(context: PrepareStepContext) {
+    return forcedReplyStep(context.stepNumber, context.steps);
   }
 
   /**

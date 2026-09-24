@@ -9,8 +9,8 @@ import {
 } from "ai";
 import { z } from "zod";
 
-import { MAX_STEPS } from "../../src/limits";
-import { cateringRequestInput } from "../../src/catering";
+import { forcedReplyStep, MAX_STEPS } from "../../src/limits";
+import { cateringRequestInput, cateringRequestProblem, PENDING_STATUS } from "../../src/catering";
 import { SNAPSHOT_MENU } from "../../src/menu";
 import { systemPrompt } from "../../src/prompt";
 import { taniasTools } from "../../src/tools";
@@ -71,8 +71,10 @@ export async function runTurn(
         + "Use only a start time returned by check_catering_availability, after the customer agreed to the details.",
       inputSchema: cateringRequestInput,
       execute: async (input) => {
+        const problem = cateringRequestProblem(input);
+        if (problem) return problem;
         cateringRequests.push(input);
-        return { status: "pending_owner_confirmation", requestId: "eval" };
+        return { requestId: "eval", status: PENDING_STATUS };
       },
     }),
   };
@@ -80,6 +82,7 @@ export async function runTurn(
     maxRetries: 1,
     messages: history,
     model: model(),
+    prepareStep: ({ stepNumber, steps }) => forcedReplyStep(stepNumber, steps),
     stopWhen: [hasToolCall("reply"), stepCountIs(MAX_STEPS)],
     system: systemPrompt(options.now),
     temperature: 0,
