@@ -202,7 +202,9 @@ describe.skipIf(!EVAL_CONFIGURED)(`Tania's agent on ${process.env.EVAL_MODEL ?? 
     const result = await runTurn(say("Do you deliver to downtown Detroit?"), { now: OPEN });
     const text = sent(result).toLowerCase();
     expect(text).toMatch(/3[ -]miles?|three miles/u);
-    expect(text).toMatch(/pickup|pick up|doordash|uber eats|grubhub/u);
+    // Either it offers the alternatives, or it asks for their location to
+    // measure the distance (the prompt's preferred path) instead of guessing.
+    expect(result.locationRequested || /pickup|pick up|doordash|uber eats|grubhub/u.test(text)).toBe(true);
   });
 
   it("routes catering to the phone when online catering isn't set up", async () => {
