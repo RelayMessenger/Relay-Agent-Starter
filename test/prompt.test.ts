@@ -18,7 +18,8 @@ describe("Tania's system prompt", () => {
     expect(prompt).toContain("you cannot place or pay for orders");
     expect(prompt).toContain("https://taniaspizza.toast.site/order");
     expect(prompt).toContain("never promise something is allergen-free");
-    expect(prompt).toContain("Never sell, recommend or discuss buying alcohol");
+    expect(prompt).toContain("Never sell, recommend, link or discuss buying alcohol");
+    expect(prompt).not.toContain("in-store only");
     expect(prompt).toContain("Never quote catering prices or confirm a booking yourself");
     expect(prompt).toContain("within about 3 miles");
     expect(prompt).toContain("calling reply exactly once");

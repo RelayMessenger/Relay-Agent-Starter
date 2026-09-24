@@ -37,7 +37,7 @@ chat is well under a cent.
 | Hours / open now | Answers from the owner-confirmed hours in `src/business.ts` |
 | Delivery | Within about 3 miles; Toast checkout confirms the address; otherwise pickup or the delivery apps |
 | Allergies | Shares menu facts (gluten-free crust, vegan cheese/pepperoni) but never promises allergen safety; serious allergies → call the store |
-| Beer, wine, tobacco | Never sells or recommends; in-store only with ID. Age-restricted categories are invisible to the tools |
+| Beer, wine, tobacco | Never sells, links or recommends them (they need a 21+ ID). Age-restricted categories are invisible to the tools |
 | Catering | Offers only open slots from Tania's Cal.com calendar, collects the details, files a **pending** request. Tania's confirms/declines in Cal.com; the agent messages the customer with the decision |
 | Complaints, refunds, anything else | Apologizes and gives (248) 288-4774 |
 
@@ -84,7 +84,8 @@ direct link, captured by `scripts/snapshot-menu.mjs` (Playwright; read-only,
 never touches cart or checkout). Refresh it whenever the menu changes:
 
 ```sh
-node scripts/snapshot-menu.mjs   # see the header comment for Playwright setup
+npx -y -p playwright@latest playwright install chromium   # once
+npx -y -p playwright@latest node scripts/snapshot-menu.mjs
 ```
 
 With Toast Standard API access configured, the agent reads live prices from
@@ -143,6 +144,9 @@ Action replays the same Message instead of sending a second one. Catering
 decisions use `tanias-pizza-agent:catering:<booking-uid>:<status>`, so Cal.com
 retries are safe. Each turn is capped at 6 model steps, and each person at 12
 messages a minute (Workers Rate Limiting), bounding Tania's inference bill.
+If a turn completes without calling `reply`, the customer gets a short
+fallback (order link and phone) under the same reply idempotency key, so they
+never hear silence and never get two answers.
 
 ## Validate
 

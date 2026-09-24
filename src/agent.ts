@@ -154,11 +154,22 @@ export class RelayChatAgent extends Think<Bindings> {
     return { relay: createRelayMessenger(this.env) };
   }
 
-  private currentTurn: RelayTurnIdentity | undefined;
+  /**
+   * Turns in one Chat run serially, but Think releases the turn lock before
+   * onChatResponse, so the next turn's beforeTurn can run first. Pair them
+   * first-in, first-out.
+   */
+  private readonly pendingTurns: Array<RelayTurnIdentity | null> = [];
 
   override async beforeTurn(context: TurnContext): Promise<TurnConfig> {
-    const turn = this.relayTurn();
-    this.currentTurn = turn;
+    let turn: RelayTurnIdentity;
+    try {
+      turn = this.relayTurn();
+    } catch (error) {
+      this.pendingTurns.push(null);
+      throw error;
+    }
+    this.pendingTurns.push(turn);
     try {
       await markRelayChatRead(this.env, turn.chatId);
     } catch (error) {
@@ -187,8 +198,7 @@ export class RelayChatAgent extends Think<Bindings> {
    * second Message.
    */
   override async onChatResponse(result: ChatResponseResult): Promise<void> {
-    const turn = this.currentTurn;
-    this.currentTurn = undefined;
+    const turn = this.pendingTurns.shift();
     if (!turn || result.status !== "completed" || turnReplied(result.message)) return;
     console.warn(JSON.stringify({ event: "turn_without_reply", chat_id: turn.chatId }));
     try {
