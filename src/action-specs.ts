@@ -5,6 +5,8 @@ import {
 } from "@relaymessenger/sdk";
 import { z } from "zod";
 
+import { cardInputSchema } from "./cards";
+
 /**
  * The model-facing contract of the agent's Actions, shared by the Worker
  * (agent.ts, reply.ts) and the live eval harness so they can never drift.
@@ -27,6 +29,10 @@ export const replyInputSchema = z.object({
   }).strict()).min(1).max(5).optional().describe(
     "1 to 5 buttons under your words. A url button opens that page (use for ordering an item, gift cards, "
     + "Rewards); a plain button sends its label back as the customer's answer. " + BUTTONS_GUIDANCE,
+  ),
+  card: cardInputSchema.optional().describe(
+    "A Relay card (A2UI) sent right after your words: an order summary, a receipt, a location with an Open in Maps "
+    + "button, a catering review with a slider or date picker, a details form. See the card rules in your instructions.",
   ),
   selection: z.array(z.object({
     value: z.string().min(1).max(100).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/u),
@@ -66,3 +72,9 @@ export const REQUEST_CATERING_DESCRIPTION =
   "File a catering request on Tania's catering calendar for owner confirmation. "
   + "Use only a start time returned by check_catering_availability, after the customer agreed to the details. "
   + "Call at most once per customer message.";
+
+export const UPDATE_CARD_DESCRIPTION =
+  "Change a card you already sent, in place (no new message): replace components by id, or set a value in its data "
+  + "model. Use it after a tap, e.g. to show the confirmed state or a review step.";
+
+export const DELETE_CARD_DESCRIPTION = "Remove a card you sent, for everyone in the chat.";

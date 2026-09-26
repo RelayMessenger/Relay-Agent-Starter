@@ -83,6 +83,16 @@ function replyActionKey(messageId: string): string {
 export const MENU_TRIGGER = "[menu-turn]";
 export const LOCATION_TRIGGER = "[location-turn]";
 export const SLOW_TRIGGER = "[slow-turn]";
+/** Marks the customer's next Message, so the newer turn answers without the delay. */
+export const FOLLOWUP_TRIGGER = "[followup-msg]";
+export const CARD_TRIGGER = "[card-turn]";
+export const TEST_CARD = [
+  { child: "body", component: "Card", id: "root" },
+  { children: ["title", "confirm"], component: "Column", id: "body" },
+  { component: "Text", id: "title", text: "Your order", variant: "h4" },
+  { component: "Text", id: "confirm_label", text: "Looks right" },
+  { action: { event: { context: { order: "o-1" }, name: "harness_confirm_tap" } }, child: "confirm_label", component: "Button", id: "confirm", variant: "primary" },
+];
 export const NO_REPLY_TRIGGER = "[no-reply-turn]";
 export const EMPTY_TURN_TRIGGER = "[empty-turn]";
 export const PLAIN_TEXT_ANSWER = "We're open until 8 PM today.";
@@ -155,7 +165,18 @@ function testModel(): MockLanguageModelV3 {
         // A turn that ends with neither a reply nor any text.
         return textStream(" ");
       }
-      if (prompt.includes(SLOW_TRIGGER) && !prompt.includes("follow-up")) {
+      if (prompt.includes("Relay card tap data") && prompt.includes("harness_confirm_tap")) {
+        return prompt.includes('"status":"updated"') || prompt.includes('\\"status\\":\\"updated\\"')
+          ? toolCallStream("reply", { text: "Done, sent to Tania's." })
+          : toolCallStream("update_card", {
+            components: [{ component: "Text", id: "title", text: "Sent to Tania's", variant: "h4" }],
+            surface_id: "order-1",
+          });
+      }
+      if (prompt.includes(CARD_TRIGGER)) {
+        return toolCallStream("reply", { card: { components: TEST_CARD, surface_id: "order-1" }, text: "Here's your order." });
+      }
+      if (prompt.includes(SLOW_TRIGGER) && !prompt.includes(FOLLOWUP_TRIGGER)) {
         // A slow turn the customer's next Message overtakes.
         return toolCallStream("reply", { text: "stale answer" }, 2_500);
       }

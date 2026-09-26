@@ -11,7 +11,6 @@ import {
   requireRelayWebhookSecret,
 } from "./env";
 import {
-  directInboundMessageId,
   rateLimitedSenderFromSignedPayload,
   relayChatIdFromSignedPayload,
 } from "./events";
@@ -117,12 +116,6 @@ async function routeRelayWebhook(
   const name =
     relayChatIdFromSignedPayload(payload) ?? RELAY_EVENT_AGENT_NAME;
   const agent = await getAgentByName(env.RelayChat, name);
-  // Newest person's Message in a direct Chat, recorded before its turn is
-  // queued, so an older turn still running knows it has been superseded.
-  const inbound = directInboundMessageId(payload);
-  if (inbound) {
-    await (agent as unknown as { noteInbound(id: string): Promise<void> }).noteInbound(inbound);
-  }
   return agent.fetch(new Request(request.url, {
     body: payload,
     headers: request.headers,

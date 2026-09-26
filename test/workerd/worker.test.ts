@@ -190,6 +190,10 @@ function installRelayBackend(input: {
     const request = new Request(requestInput, init);
     const body = await request.clone().text();
     const pathname = new URL(request.url).pathname;
+    // The supersede check lists the Chat; nothing newer arrived here.
+    if (pathname === `/v1/chats/${input.chatId}/messages` && request.method === "GET") {
+      return Response.json({ messages: [], next_cursor: null });
+    }
     calls.push({
       body,
       headers: new Headers(request.headers),

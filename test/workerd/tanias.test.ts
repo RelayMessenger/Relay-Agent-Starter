@@ -5,7 +5,7 @@ import { searchMenu, SNAPSHOT_MENU } from "../../src/menu";
 import { relayReplyIdempotencyKey } from "../../src/reply";
 import { FALLBACK_REPLY } from "../../src/agent";
 import { answerToMessages } from "../../src/answer";
-import { EMPTY_TURN_TRIGGER, LOCATION_TRIGGER, MENU_TRIGGER, SLOW_TRIGGER, NO_REPLY_TRIGGER, PLAIN_TEXT_ANSWER } from "./harness";
+import { CARD_TRIGGER, EMPTY_TURN_TRIGGER, FOLLOWUP_TRIGGER, LOCATION_TRIGGER, MENU_TRIGGER, SLOW_TRIGGER, TEST_CARD, NO_REPLY_TRIGGER, PLAIN_TEXT_ANSWER } from "./harness";
 
 const RELAY_SECRET = "test-secret";
 const CAL_SECRET = "cal-test-secret";
@@ -32,6 +32,9 @@ async function hmac(secret: string, body: string): Promise<ArrayBuffer> {
   return crypto.subtle.sign("HMAC", key, new TextEncoder().encode(body));
 }
 
+/** Person Messages per Chat, as Relay would list them (newest last). */
+const inbound = new Map<string, Array<{ id: string; senderId: string }>>();
+
 async function relayWebhook(input: {
   chatId: string;
   isGroup?: boolean;
@@ -39,6 +42,7 @@ async function relayWebhook(input: {
   senderId: string;
   text: string;
 }): Promise<Request> {
+  inbound.set(input.chatId, [...(inbound.get(input.chatId) ?? []), { id: input.messageId, senderId: input.senderId }]);
   const eventId = uuid("01993d51");
   const body = JSON.stringify({
     agent_id: AGENT_ID,
@@ -92,6 +96,25 @@ async function relayWebhook(input: {
   });
 }
 
+async function tapWebhook(input: { chatId: string; messageId: string; senderId: string }): Promise<Request> {
+  const request = await relayWebhook({ ...input, text: "" });
+  const envelope = JSON.parse(await request.text()) as { data: { parts: unknown[] }; event_id: string };
+  envelope.data.parts = [{
+    data: [{ action: { context: { order: "o-1" }, name: "harness_confirm_tap", sourceComponentId: "confirm", surfaceId: "order-1", timestamp: "2026-09-25T18:00:00Z" }, version: "v0.9.1" }],
+    media_type: "application/a2ui+json",
+    reactions: null,
+    type: "data",
+  }];
+  const body = JSON.stringify(envelope);
+  const timestamp = Math.floor(Date.now() / 1_000).toString();
+  const signature = await hmac(RELAY_SECRET, `${envelope.event_id}.${timestamp}.${body}`);
+  return new Request(request.url, {
+    body,
+    headers: { "content-type": "application/json", "webhook-id": envelope.event_id, "webhook-signature": `v1,${base64(signature)}`, "webhook-timestamp": timestamp },
+    method: "POST",
+  });
+}
+
 async function calWebhook(event: unknown, secret = CAL_SECRET): Promise<Request> {
   const body = JSON.stringify(event);
   const digest = new Uint8Array(await hmac(secret, body));
@@ -117,6 +140,14 @@ function installRelay(): RecordedCall[] {
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new Request(input, init);
     const pathname = new URL(request.url).pathname;
+    const listed = /^\/v1\/chats\/([^/]+)\/messages$/u.exec(pathname);
+    if (listed && request.method === "GET") {
+      const listedMessages = [...(inbound.get(listed[1]!) ?? [])].reverse();
+      return Response.json({
+        messages: listedMessages.map(({ id, senderId }) => ({ from_handle: { id: senderId, kind: "user" }, id, is_from_me: false, is_system_message: false })),
+        next_cursor: null,
+      });
+    }
     calls.push({
       body: await request.clone().text(),
       headers: new Headers(request.headers),
@@ -219,7 +250,7 @@ describe("follow-up while the agent is thinking", () => {
     const second = uuid("01993d67");
     const slow = SELF.fetch(await relayWebhook({ chatId, messageId: first, senderId: sender, text: `${SLOW_TRIGGER} hi` }));
     await new Promise((resolve) => setTimeout(resolve, 300));
-    const follow = SELF.fetch(await relayWebhook({ chatId, messageId: second, senderId: sender, text: "follow-up question" }));
+    const follow = SELF.fetch(await relayWebhook({ chatId, messageId: second, senderId: sender, text: `${FOLLOWUP_TRIGGER} question` }));
     await Promise.all([slow, follow]);
     await vi.waitFor(() => {
       expect(calls.filter((c) => c.pathname.endsWith("/messages"))).toHaveLength(1);
@@ -234,7 +265,7 @@ describe("follow-up while the agent is thinking", () => {
 
 describe("correction sent while the first turn is still running", () => {
   it("still answers, once, after the Chat SDK's debounce window", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
     const calls = installRelay();
     const chatId = uuid("01993d68");
     const sender = uuid("01993d69");
@@ -242,13 +273,47 @@ describe("correction sent while the first turn is still running", () => {
     const second = uuid("01993d6b");
     const slow = SELF.fetch(await relayWebhook({ chatId, messageId: first, senderId: sender, text: `${SLOW_TRIGGER} What AI do you run up?` }));
     await new Promise((resolve) => setTimeout(resolve, 1_200));
-    const follow = SELF.fetch(await relayWebhook({ chatId, messageId: second, senderId: sender, text: "follow-up: On" }));
+    const follow = SELF.fetch(await relayWebhook({ chatId, messageId: second, senderId: sender, text: `${FOLLOWUP_TRIGGER} On` }));
     await Promise.all([slow, follow]);
     await new Promise((resolve) => setTimeout(resolve, 4_000));
     const sends = calls.filter((c) => c.pathname.endsWith("/messages"));
-    console.log("DIAG", JSON.stringify(warn.mock.calls.map((c) => c[0])), sends.map((s) => s.headers.get("idempotency-key")));
     expect(sends).toHaveLength(1);
+    expect(sends[0]!.headers.get("idempotency-key")).toBe(relayReplyIdempotencyKey(second));
   }, 40_000);
+});
+
+describe("cards", () => {
+  it("sends the words, then the card as an A2UI data part on Relay's catalog", async () => {
+    const calls = installRelay();
+    const chatId = uuid("01993d70");
+    const messageId = uuid("01993d71");
+    await SELF.fetch(await relayWebhook({ chatId, messageId, senderId: uuid("01993d72"), text: `${CARD_TRIGGER} my order` }));
+    const sends = calls.filter((c) => c.pathname.endsWith("/messages"));
+    expect(sends).toHaveLength(2);
+    expect(JSON.parse(sends[0]!.body).message.parts).toEqual([{ type: "text", value: "Here's your order." }]);
+    const card = JSON.parse(sends[1]!.body).message;
+    expect(card.idempotency_key).toBe(`${relayReplyIdempotencyKey(messageId)}:card`);
+    expect(card.parts[0]).toMatchObject({ media_type: "application/a2ui+json", type: "data" });
+    expect(card.parts[0].data[0]).toEqual({
+      createSurface: { catalogId: "https://relayapp.im/a2ui/catalog/v1", surfaceId: "order-1" },
+      version: "v0.9.1",
+    });
+    expect(card.parts[0].data[1].updateComponents.components).toEqual(TEST_CARD);
+  });
+
+  it("reads a tap, updates the card in place, then replies", async () => {
+    const calls = installRelay();
+    const chatId = uuid("01993d73");
+    await SELF.fetch(await tapWebhook({ chatId, messageId: uuid("01993d74"), senderId: uuid("01993d75") }));
+    const sends = calls.filter((c) => c.pathname.endsWith("/messages"));
+    expect(sends).toHaveLength(2);
+    const update = JSON.parse(sends[0]!.body).message.parts[0].data[0];
+    expect(update).toEqual({
+      updateComponents: { components: [{ component: "Text", id: "title", text: "Sent to Tania's", variant: "h4" }], surfaceId: "order-1" },
+      version: "v0.9.1",
+    });
+    expect(JSON.parse(sends[1]!.body).message.parts).toEqual([{ type: "text", value: "Done, sent to Tania's." }]);
+  });
 });
 
 describe("location request", () => {

@@ -2,6 +2,7 @@ import { action, type Action } from "@cloudflare/think";
 import Relay, { indexedIdempotencyKey, type RequestOptions } from "@relaymessenger/sdk";
 
 import { composeAnswer, REPLY_DESCRIPTION, replyInputSchema } from "./action-specs";
+import { sendCard } from "./cards";
 import { answerToMessages } from "./answer";
 import type { Bindings, RelayConfiguration } from "./env";
 import { requireRelayToken } from "./env";
@@ -10,6 +11,8 @@ import { requireRelayToken } from "./env";
 export interface RelayTurnIdentity {
   chatId: string;
   messageId: string;
+  /** The Relay handle ID of the person whose Message started the turn. */
+  senderId?: string;
 }
 
 interface ReplyDependencies {
@@ -105,7 +108,15 @@ export function createReplyAction(deps: ReplyDependencies): Action {
         console.warn(JSON.stringify({ chat_id: turn.chatId, event: "reply_superseded" }));
         return { status: "superseded" };
       }
-      return sendRelayReply(deps.env, turn, composeAnswer(input), context.signal);
+      const sent = await sendRelayReply(deps.env, turn, composeAnswer(input), context.signal);
+      if (!input.card) return sent;
+      if (!interactiveParts(deps.env)) return { ...sent, card: { status: "not_available_on_this_server" } };
+      // The card follows the words as its own Message, with its own key.
+      const card = await sendCard(relayClient(deps.env), turn.chatId, {
+        ...input.card,
+        surface_id: input.card.surface_id ?? `card-${turn.messageId.slice(-12)}`,
+      }, `${relayReplyIdempotencyKey(turn.messageId)}:card`);
+      return { ...sent, card };
     },
   });
 }

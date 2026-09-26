@@ -29,11 +29,21 @@ import {
   requireRelayWebhookSecret,
 } from "./env";
 import {
+  DELETE_CARD_DESCRIPTION,
+  UPDATE_CARD_DESCRIPTION,
   REQUEST_CATERING_DESCRIPTION,
   REQUEST_LOCATION_DESCRIPTION,
   requestLocationInputSchema,
 } from "./action-specs";
 import { FALLBACK_REPLY } from "./answer";
+import {
+  CARDS_UNAVAILABLE,
+  deleteCard,
+  deleteCardInputSchema,
+  updateCard,
+  updateCardInputSchema,
+  withCardTaps,
+} from "./cards";
 import { deliveryDistance, requestRelayLocation, withComponentContext } from "./interactive";
 import { forcedReplyStep, MAX_OUTPUT_TOKENS, MAX_STEPS } from "./limits";
 import { SNAPSHOT_MENU } from "./menu";
@@ -44,6 +54,7 @@ import { taniasTools } from "./tools";
 import {
   createReplyAction,
   markRelayChatRead,
+  interactiveParts,
   relayClient,
   relayReplyIdempotencyKey,
   sendRelayAnswer,
@@ -53,7 +64,6 @@ import {
 export { ThinkMessengerStateAgent };
 
 const RELAY_WEBHOOK_PATH = "/webhooks/relay";
-const LATEST_INBOUND_KEY = "tanias:latest-inbound-message";
 // Relay's downstream Message idempotency key makes immediate reclaim safe.
 const ACTION_RETRY_LEASE_MS = 0;
 export { MAX_STEPS };
@@ -69,13 +79,13 @@ export function createRelayMessenger(env: Bindings) {
   return chatSdkMessenger({
     // Selection answers, location cards and payment receipts reach the
     // turn as data (see interactive.ts).
-    adapter: withComponentContext(createRelayAdapter({
+    adapter: withCardTaps(withComponentContext(createRelayAdapter({
       baseUrl: env.RELAY_API_ORIGIN,
       token: requireRelayToken(env),
       typing: false,
       userName: handle,
       webhookSecret: requireRelayWebhookSecret(env),
-    })),
+    }))),
     adapterName: "relay",
     capabilities: {
       canEditMessages: false,
@@ -139,6 +149,22 @@ export class RelayChatAgent extends Think<Bindings> {
         env: this.env,
         superseded: (turn) => this.superseded(turn),
         turn: () => this.relayTurn(),
+      }),
+      update_card: action({
+        description: UPDATE_CARD_DESCRIPTION,
+        inputSchema: updateCardInputSchema,
+        idempotencyKey: ({ input }) => `card-update:${this.relayTurn().messageId}:${input.surface_id}`,
+        execute: (input) => interactiveParts(this.env)
+          ? updateCard(relayClient(this.env), this.relayTurn().chatId, input)
+          : Promise.resolve(CARDS_UNAVAILABLE),
+      }),
+      delete_card: action({
+        description: DELETE_CARD_DESCRIPTION,
+        inputSchema: deleteCardInputSchema,
+        idempotencyKey: ({ input }) => `card-delete:${this.relayTurn().messageId}:${input.surface_id}`,
+        execute: (input) => interactiveParts(this.env)
+          ? deleteCard(relayClient(this.env), this.relayTurn().chatId, input.surface_id)
+          : Promise.resolve(CARDS_UNAVAILABLE),
       }),
       request_location: action({
         description: REQUEST_LOCATION_DESCRIPTION,
@@ -239,20 +265,28 @@ export class RelayChatAgent extends Think<Bindings> {
   }
 
   /**
-   * The Worker records each person's newest Message in this Chat as it
-   * arrives (noteInbound), before the turns run one by one. A turn whose
-   * Message is no longer the newest stays silent: the newer turn sees every
-   * Message in history and answers them together, so a customer who sends a
-   * follow-up while the agent is thinking gets one answer, not one per
-   * Message (Relay-Agent's chronological admission, simplified).
+   * A turn whose customer Message is no longer the newest one they sent in
+   * this Chat stays silent: the newer Message's turn sees both in history and
+   * answers them together, so a follow-up or correction sent while the agent
+   * is thinking gets one answer. Relay is the authority on what is newest
+   * (message IDs are UUIDv7, time-ordered), read at reply time; if the read
+   * fails the turn answers rather than risk silence.
    */
-  async noteInbound(messageId: string): Promise<void> {
-    await this.ctx.storage.put(LATEST_INBOUND_KEY, messageId);
-  }
-
   private async superseded(turn: RelayTurnIdentity): Promise<boolean> {
-    const latest = await this.ctx.storage.get<string>(LATEST_INBOUND_KEY);
-    return Boolean(latest && latest !== turn.messageId);
+    if (!turn.senderId) return false;
+    try {
+      const page = await relayClient(this.env).chats.messages.list(turn.chatId, { limit: 20, order: "desc" });
+      // Only the same person's newer Message: in a group, everyone gets an answer.
+      const newest = page.messages.find((message) => message.from_handle?.id === turn.senderId);
+      return Boolean(newest && newest.id > turn.messageId);
+    } catch (error) {
+      console.warn(JSON.stringify({
+        chat_id: turn.chatId,
+        error: error instanceof Error ? error.message : String(error),
+        event: "superseded_check_failed",
+      }));
+      return false;
+    }
   }
 
   /**
@@ -279,6 +313,6 @@ export class RelayChatAgent extends Think<Bindings> {
     if (!messageId || !UUID.test(messageId)) {
       throw new Error("Relay messenger context is missing a Message ID");
     }
-    return { chatId, messageId };
+    return { chatId, messageId, senderId: context?.message?.author.userId };
   }
 }

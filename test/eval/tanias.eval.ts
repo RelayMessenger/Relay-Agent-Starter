@@ -2,6 +2,7 @@ import type { ModelMessage } from "ai";
 import { describe, expect, it } from "vitest";
 
 import { FALLBACK_REPLY } from "../../src/answer";
+import { checkCard } from "../a2ui-check";
 import { EVAL_CONFIGURED, runTurn, type TurnResult } from "./conversation";
 
 /**
@@ -24,6 +25,14 @@ const calOnly = (data: Record<string, Array<{ start: string }>>) => (async (inpu
   String(input).startsWith("https://api.cal.com/")
     ? Response.json({ data, status: "success" })
     : fetch(input, init)) as unknown as typeof fetch;
+/** The card the model attached to its reply, checked against Relay's catalog. */
+function card(result: TurnResult): Array<Record<string, unknown>> {
+  const reply = result.toolCalls.find((call) => call.name === "reply")?.input as
+    { card?: { components: Array<Record<string, unknown>> } } | undefined;
+  expect(reply?.card, "a card on the reply").toBeDefined();
+  expect(checkCard(reply!.card!.components)).toEqual([]);
+  return reply!.card!.components;
+}
 const components = (result: TurnResult) =>
   result.messages.flat().filter((part) => part.type === "buttons" || part.type === "selection");
 
@@ -338,5 +347,32 @@ describe.skipIf(!EVAL_CONFIGURED)(`Tania's agent on ${process.env.EVAL_MODEL ?? 
     const result = await runTurn(say("Write me a 300 word essay about the French Revolution."), { now: OPEN });
     const text = sent(result);
     expect(text.split(/\s+/u).length).toBeLessThan(120);
+  });
+
+  it("shows an order summary as a card", async () => {
+    const result = await runTurn(
+      say("Can you put together a summary of my order? A large pepperoni pizza and an order of garlic knots."),
+      { now: OPEN },
+    );
+    sent(result);
+    const json = JSON.stringify(card(result));
+    expect(json).toMatch(/pepperoni/iu);
+    expect(json).toMatch(/\$\d+\.\d\d/u);
+  });
+
+  it("confirms catering details in a card with a headcount input", async () => {
+    const result = await runTurn(
+      say("I'm thinking about catering for an office lunch next Tuesday, maybe 30 to 50 people. Can you help me set the details?"),
+      {
+        cateringEnv: { CAL_API_KEY: "cal_eval", CAL_EVENT_TYPE_ID: "1" },
+        fetcher: calOnly({
+          "2026-09-29": [{ start: "2026-09-29T11:00:00.000-04:00" }, { start: "2026-09-29T12:00:00.000-04:00" }],
+        }),
+        now: OPEN,
+      },
+    );
+    sent(result);
+    const names = card(result).map((component) => component.component);
+    expect(names.some((name) => ["Slider", "TextField", "ChoicePicker"].includes(String(name)))).toBe(true);
   });
 });
