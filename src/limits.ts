@@ -42,3 +42,17 @@ export function forcedReplyStep(
   }
   return undefined;
 }
+
+/** reply's status when its card failed the catalog check and nothing was sent. */
+export const CARD_INVALID = "card_invalid";
+
+/**
+ * The turn ends when a reply lands (AI SDK stopWhen). A reply turned back
+ * for a bad card sent nothing, so the model gets another step to fix it.
+ */
+export function replyLanded({ steps }: { steps: ReadonlyArray<StepView> }): boolean {
+  const last = steps.at(-1);
+  return Boolean(last?.toolResults.some((result) =>
+    result.toolName === "reply"
+    && (result.output as { status?: unknown } | undefined)?.status !== CARD_INVALID));
+}

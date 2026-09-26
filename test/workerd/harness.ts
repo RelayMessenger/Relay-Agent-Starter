@@ -93,6 +93,8 @@ export const TEST_CARD = [
   { component: "Text", id: "confirm_label", text: "Looks right" },
   { action: { event: { context: { order: "o-1" }, name: "harness_confirm_tap" } }, child: "confirm_label", component: "Button", id: "confirm", variant: "primary" },
 ];
+/** First a card with no root (what left a spinner in the app), then the fixed one. */
+export const BAD_CARD_TRIGGER = "[bad-card-turn]";
 export const NO_REPLY_TRIGGER = "[no-reply-turn]";
 export const EMPTY_TURN_TRIGGER = "[empty-turn]";
 export const PLAIN_TEXT_ANSWER = "We're open until 8 PM today.";
@@ -164,6 +166,11 @@ function testModel(): MockLanguageModelV3 {
       if (prompt.includes(EMPTY_TURN_TRIGGER)) {
         // A turn that ends with neither a reply nor any text.
         return textStream(" ");
+      }
+      if (prompt.includes(BAD_CARD_TRIGGER)) {
+        return toolCallStream("reply", prompt.includes("card_invalid")
+          ? { card: { components: TEST_CARD, surface_id: "receipt-1" }, text: "Here's a sample receipt." }
+          : { card: { components: TEST_CARD.slice(1), surface_id: "receipt-1" }, text: "Here's a sample receipt." });
       }
       if (prompt.includes("Relay card tap data") && prompt.includes("harness_confirm_tap")) {
         return prompt.includes('"status":"updated"') || prompt.includes('\\"status\\":\\"updated\\"')

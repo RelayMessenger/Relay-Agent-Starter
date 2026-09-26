@@ -2,7 +2,7 @@ import type { ModelMessage } from "ai";
 import { describe, expect, it } from "vitest";
 
 import { FALLBACK_REPLY } from "../../src/answer";
-import { checkCard } from "../a2ui-check";
+import { cardIssues } from "../../src/card-check";
 import { EVAL_CONFIGURED, runTurn, type TurnResult } from "./conversation";
 
 /**
@@ -27,10 +27,11 @@ const calOnly = (data: Record<string, Array<{ start: string }>>) => (async (inpu
     : fetch(input, init)) as unknown as typeof fetch;
 /** The card the model attached to its reply, checked against Relay's catalog. */
 function card(result: TurnResult): Array<Record<string, unknown>> {
-  const reply = result.toolCalls.find((call) => call.name === "reply")?.input as
+  // The reply that landed: a first one may have been turned back for its card.
+  const reply = result.toolCalls.filter((call) => call.name === "reply").at(-1)?.input as
     { card?: { components: Array<Record<string, unknown>> } } | undefined;
   expect(reply?.card, "a card on the reply").toBeDefined();
-  expect(checkCard(reply!.card!.components)).toEqual([]);
+  expect(cardIssues(reply!.card!.components)).toEqual([]);
   return reply!.card!.components;
 }
 const components = (result: TurnResult) =>
@@ -39,7 +40,8 @@ const components = (result: TurnResult) =>
 function sent(result: TurnResult): string {
   expect(result.answer, "the model must finish with an answer").not.toBeNull();
   expect(result.answer, "the customer must get a real answer, not the fallback").not.toBe(FALLBACK_REPLY);
-  expect(result.toolCalls.filter((call) => call.name === "reply").length).toBeLessThanOrEqual(1);
+  // One reply, or two when the first was turned back, unsent, for its card.
+  expect(result.toolCalls.filter((call) => call.name === "reply").length).toBeLessThanOrEqual(2);
   // What Relay shows: no URL left in words, no raw list markers, and at most
   // one component per Message.
   for (const parts of result.messages) {
@@ -374,5 +376,11 @@ describe.skipIf(!EVAL_CONFIGURED)(`Tania's agent on ${process.env.EVAL_MODEL ?? 
     sent(result);
     const names = card(result).map((component) => component.component);
     expect(names.some((name) => ["Slider", "TextField", "ChoicePicker"].includes(String(name)))).toBe(true);
+  });
+
+  it("shows an example receipt as a card that draws", async () => {
+    const result = await runTurn(say("Show me an example receipt"), { now: CLOSED });
+    sent(result);
+    expect(card(result).length).toBeGreaterThan(2);
   });
 });

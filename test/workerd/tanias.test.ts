@@ -5,7 +5,7 @@ import { searchMenu, SNAPSHOT_MENU } from "../../src/menu";
 import { relayReplyIdempotencyKey } from "../../src/reply";
 import { FALLBACK_REPLY } from "../../src/agent";
 import { answerToMessages } from "../../src/answer";
-import { CARD_TRIGGER, EMPTY_TURN_TRIGGER, FOLLOWUP_TRIGGER, LOCATION_TRIGGER, MENU_TRIGGER, SLOW_TRIGGER, TEST_CARD, NO_REPLY_TRIGGER, PLAIN_TEXT_ANSWER } from "./harness";
+import { BAD_CARD_TRIGGER, CARD_TRIGGER, EMPTY_TURN_TRIGGER, FOLLOWUP_TRIGGER, LOCATION_TRIGGER, MENU_TRIGGER, SLOW_TRIGGER, TEST_CARD, NO_REPLY_TRIGGER, PLAIN_TEXT_ANSWER } from "./harness";
 
 const RELAY_SECRET = "test-secret";
 const CAL_SECRET = "cal-test-secret";
@@ -299,6 +299,19 @@ describe("cards", () => {
       version: "v0.9.1",
     });
     expect(card.parts[0].data[1].updateComponents.components).toEqual(TEST_CARD);
+  });
+
+  it("turns a card that can't draw back to the model, sending nothing, then sends the fixed one", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const calls = installRelay();
+    const chatId = uuid("01993d76");
+    const messageId = uuid("01993d77");
+    await SELF.fetch(await relayWebhook({ chatId, messageId, senderId: uuid("01993d78"), text: `${BAD_CARD_TRIGGER} example receipt` }));
+    const sends = calls.filter((c) => c.pathname.endsWith("/messages"));
+    expect(sends).toHaveLength(2);
+    expect(JSON.parse(sends[0]!.body).message.parts).toEqual([{ type: "text", value: "Here's a sample receipt." }]);
+    const card = JSON.parse(sends[1]!.body).message.parts[0].data;
+    expect(card[1].updateComponents.components).toEqual(TEST_CARD);
   });
 
   it("reads a tap, updates the card in place, then replies", async () => {

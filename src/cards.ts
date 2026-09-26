@@ -14,6 +14,8 @@ import Relay, {
 import { z } from "zod";
 
 import { plainDashes } from "./answer";
+import { cardIssues } from "./card-check";
+import { CARD_INVALID } from "./limits";
 
 /** Components are the catalog's own JSON: an id, a component name, its properties. */
 export const cardComponentsSchema = z.array(
@@ -76,6 +78,21 @@ function refusal(error: unknown) {
   throw error;
 }
 
+/**
+ * reply's answer when its card fails the check: nothing was sent, and the
+ * model gets the problems to fix. Undefined when the card is good.
+ */
+export function cardRejection(components: ReadonlyArray<Record<string, unknown>>) {
+  const issues = cardIssues(cleanComponents(components));
+  return issues.length
+    ? {
+      instruction: "Nothing was sent. Fix these problems (only the catalog's components and properties) and call reply again with your words and the fixed card, or without the card.",
+      issues,
+      status: CARD_INVALID,
+    }
+    : undefined;
+}
+
 export const CARDS_UNAVAILABLE = {
   instruction: "Cards aren't available on this Relay server. Answer in text, with buttons or links.",
   status: "not_available",
@@ -96,10 +113,15 @@ export async function sendCard(
       ...(card.send_data_model ? { sendDataModel: true } : {}),
     }, { idempotency_key: idempotencyKey });
     const partial = (response as { a2ui_errors?: unknown[] }).a2ui_errors;
+    if (!partial?.length) return { status: "sent", surface_id: card.surface_id };
+    // The server kept the surface but refused some of it; a card missing its
+    // components shows as a spinner forever, so take it down.
+    console.warn(JSON.stringify({ errors: partial, event: "card_partly_rejected", surface_id: card.surface_id }));
+    await deleteA2uiSurface(relay, chatId, card.surface_id).catch(() => {});
     return {
-      status: partial?.length ? "sent_with_errors" : "sent",
-      surface_id: card.surface_id,
-      ...(partial?.length ? { errors: partial, instruction: "Part of the card was rejected; fix it with update_card." } : {}),
+      errors: partial,
+      instruction: "Relay refused part of the card, so it was removed. Your words were sent.",
+      status: "rejected",
     };
   } catch (error) {
     return refusal(error);

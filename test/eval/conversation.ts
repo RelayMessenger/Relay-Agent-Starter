@@ -2,7 +2,6 @@ import { appendFileSync } from "node:fs";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import {
   generateText,
-  hasToolCall,
   stepCountIs,
   tool,
   type LanguageModel,
@@ -10,7 +9,8 @@ import {
 } from "ai";
 import type { MessagePart } from "@relaymessenger/sdk";
 
-import { forcedReplyStep, MAX_OUTPUT_TOKENS, MAX_STEPS } from "../../src/limits";
+import { forcedReplyStep, MAX_OUTPUT_TOKENS, MAX_STEPS, replyLanded } from "../../src/limits";
+import { cardRejection } from "../../src/cards";
 import { cateringRequestInput, cateringRequestProblem, PENDING_STATUS } from "../../src/catering";
 import {
   composeAnswer,
@@ -108,6 +108,7 @@ export async function runTurn(
   },
 ): Promise<TurnResult> {
   let reply: string | null = null;
+  let cardRejections = 0;
   let locationRequested = false;
   const cateringRequests: unknown[] = [];
   const tools = {
@@ -124,6 +125,9 @@ export async function runTurn(
       description: REPLY_DESCRIPTION,
       inputSchema: replyInputSchema,
       execute: async (input) => {
+        // As the agent does: a bad card is turned back, unsent, once.
+        const rejection = input.card ? cardRejection(input.card.components) : undefined;
+        if (rejection && cardRejections++ === 0) return rejection;
         reply = composeAnswer(input);
         return { status: "sent" };
       },
@@ -157,7 +161,7 @@ export async function runTurn(
     messages: history,
     model: model(),
     prepareStep: ({ stepNumber, steps }) => forcedReplyStep(stepNumber, steps),
-    stopWhen: [hasToolCall("reply"), stepCountIs(MAX_STEPS)],
+    stopWhen: [replyLanded, stepCountIs(MAX_STEPS)],
     system: systemPrompt(options.now),
     temperature: 0,
     toolChoice: "auto",

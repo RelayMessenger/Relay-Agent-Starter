@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { cardTapContext, cleanComponents } from "../src/cards";
+import { cardIssues } from "../src/card-check";
+import { cardRejection, cardTapContext, cleanComponents } from "../src/cards";
 import { systemPrompt } from "../src/prompt";
-import { checkCard } from "./a2ui-check";
 
 describe("cards", () => {
   it("the prompt's example card is valid against Relay's catalog", () => {
@@ -10,18 +10,28 @@ describe("cards", () => {
     const start = prompt.indexOf('[{"id":"root"');
     const end = prompt.indexOf("}]", start) + 2;
     const example = JSON.parse(prompt.slice(start, end).replace("<that item's orderLink>", "https://taniaspizza.toast.site/order"));
-    expect(checkCard(example)).toEqual([]);
+    expect(cardIssues(example)).toEqual([]);
   });
 
-  it("the checker catches an unknown component, a bad property and a missing child", () => {
-    expect(checkCard([
+  it("checks components the way Relay's server does", () => {
+    expect(cardIssues([
       { component: "Card", child: "body", id: "root" },
       { component: "Map", id: "body" },
-    ])).toContain("body: unknown component Map");
-    expect(checkCard([{ child: "nope", component: "Card", id: "root", color: "red" }])).toEqual([
-      "root: Card has no property color",
-      "root: child nope does not exist",
-    ]);
+    ])).toEqual([{ message: '"Map" is not a Relay card component.', path: "/components/1/component" }]);
+    // An unknown property, a wrong enum and a missing required property.
+    expect(cardIssues([{ child: "t", color: "red", component: "Card", id: "root" }, { component: "Text", id: "t", text: "hi" }]))
+      .toHaveLength(1);
+    expect(cardIssues([{ child: "t", component: "Card", id: "root" }, { component: "Text", id: "t", text: "hi", variant: "huge" }])[0]!.path)
+      .toMatch(/^\/components\/1\/variant/u);
+    expect(cardIssues([{ child: "t", component: "Card", id: "root" }, { component: "Text", id: "t" }])[0]!.path)
+      .toBe("/components/1/text");
+  });
+
+  it("an empty card (no root, or a missing child) never goes out", () => {
+    expect(cardIssues([{ component: "Text", id: "t", text: "hi" }])[0]!.message).toContain('"root"');
+    expect(cardIssues([{ child: "nope", component: "Card", id: "root" }])[0]!.message).toContain('"nope"');
+    expect(cardRejection([{ component: "Text", id: "t", text: "hi" }])).toMatchObject({ status: "card_invalid" });
+    expect(cardRejection([{ child: "t", component: "Card", id: "root" }, { component: "Text", id: "t", text: "hi" }])).toBeUndefined();
   });
 
   it("keeps dashes out of card text but leaves URLs and ids alone", () => {

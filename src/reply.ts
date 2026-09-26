@@ -2,7 +2,7 @@ import { action, type Action } from "@cloudflare/think";
 import Relay, { indexedIdempotencyKey, type RequestOptions } from "@relaymessenger/sdk";
 
 import { composeAnswer, REPLY_DESCRIPTION, replyInputSchema } from "./action-specs";
-import { sendCard } from "./cards";
+import { cardRejection, sendCard } from "./cards";
 import { answerToMessages } from "./answer";
 import type { Bindings, RelayConfiguration } from "./env";
 import { requireRelayToken } from "./env";
@@ -97,20 +97,46 @@ export async function sendRelayReply(
   return sendRelayAnswer(env, turn.chatId, answer, relayReplyIdempotencyKey(turn.messageId), signal);
 }
 
+/** A short, stable id for an input (FNV-1a). */
+function fingerprint(text: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
+}
+
 export function createReplyAction(deps: ReplyDependencies): Action {
+  // Bad cards per customer Message, within this Agent instance.
+  const rejectedCards = new Map<string, number>();
   return action({
     description: REPLY_DESCRIPTION,
     inputSchema: replyInputSchema,
-    idempotencyKey: () => `message:${deps.turn().messageId}`,
+    // A reply turned back for a bad card sent nothing, so a retry with a
+    // different card is a different call; Relay's key still guards the send.
+    idempotencyKey: ({ input }) =>
+      `message:${deps.turn().messageId}${input.card ? `:${fingerprint(JSON.stringify(input.card))}` : ""}`,
     execute: async (input, context) => {
       const turn = deps.turn();
       if (await deps.superseded(turn)) {
         console.warn(JSON.stringify({ chat_id: turn.chatId, event: "reply_superseded" }));
         return { status: "superseded" };
       }
+      const cards = interactiveParts(deps.env) && input.card !== undefined;
+      const rejection = cards ? cardRejection(input.card!.components) : undefined;
+      if (rejection) {
+        if (rejectedCards.size > 100) rejectedCards.clear();
+        rejectedCards.set(turn.messageId, (rejectedCards.get(turn.messageId) ?? 0) + 1);
+        console.warn(JSON.stringify({ event: "card_invalid", issues: rejection.issues.slice(0, 5) }));
+        // Once is a fix; twice, the words go out alone so the customer is answered.
+        if (rejectedCards.get(turn.messageId)! < 2) return rejection;
+        const sent = await sendRelayReply(deps.env, turn, composeAnswer(input), context.signal);
+        return { ...sent, card: { issues: rejection.issues, status: "not_sent" } };
+      }
       const sent = await sendRelayReply(deps.env, turn, composeAnswer(input), context.signal);
       if (!input.card) return sent;
-      if (!interactiveParts(deps.env)) return { ...sent, card: { status: "not_available_on_this_server" } };
+      if (!cards) return { ...sent, card: { status: "not_available_on_this_server" } };
       // The card follows the words as its own Message, with its own key.
       const card = await sendCard(relayClient(deps.env), turn.chatId, {
         ...input.card,

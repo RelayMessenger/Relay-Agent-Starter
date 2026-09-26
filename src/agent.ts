@@ -18,7 +18,7 @@ import {
   decodeRelayThreadId,
 } from "@relaymessenger/chat-sdk-adapter";
 
-import { hasToolCall, type ToolSet } from "ai";
+import type { ToolSet } from "ai";
 
 import { cateringRequestInput, requestCatering } from "./catering";
 import type { Bindings } from "./env";
@@ -45,7 +45,7 @@ import {
   withCardTaps,
 } from "./cards";
 import { deliveryDistance, requestRelayLocation, withComponentContext } from "./interactive";
-import { forcedReplyStep, MAX_OUTPUT_TOKENS, MAX_STEPS } from "./limits";
+import { forcedReplyStep, MAX_OUTPUT_TOKENS, MAX_STEPS, replyLanded } from "./limits";
 import { SNAPSHOT_MENU } from "./menu";
 import { starterModel } from "./model";
 import { systemPrompt } from "./prompt";
@@ -214,8 +214,9 @@ export class RelayChatAgent extends Think<Bindings> {
       maxOutputTokens: MAX_OUTPUT_TOKENS,
       maxSteps: MAX_STEPS,
       sendReasoning: false,
-      // Every step is a tool call; the turn ends when the one reply lands.
-      stopWhen: hasToolCall("reply"),
+      // Every step is a tool call; the turn ends when the one reply lands
+      // (not one turned back, unsent, for a bad card).
+      stopWhen: replyLanded,
       // "auto", not "required": ai 7.0.107 throws ToolChoiceViolationError
       // when a model answers in text under "required", and Workers AI
       // gpt-oss does after a tool result. A text answer is the reply
