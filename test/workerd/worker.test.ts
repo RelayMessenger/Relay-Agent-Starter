@@ -301,6 +301,77 @@ describe("Relay Think messenger", () => {
   });
 });
 
+describe("a person's swipe-reply reaches the model", () => {
+  const TARGET_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec90";
+  const thread = {
+    channel: { name: undefined },
+    channelId: `relay:${DIRECT_CHAT_ID}`,
+    id: `relay:${DIRECT_CHAT_ID}`,
+    isDM: true,
+  };
+  const target = {
+    chat_id: DIRECT_CHAT_ID,
+    created_at: "2026-09-27T11:00:00.000Z",
+    delivery_status: "read",
+    from_handle: { ...handle(AGENT_ID, "starter_test"), kind: "agent" },
+    id: TARGET_ID,
+    is_from_me: true,
+    is_system_message: false,
+    parts: [
+      { type: "text", value: "The flight lands at 6.", reactions: null },
+      { type: "text", value: "Take the long way round the lake.", reactions: null },
+    ],
+    updated_at: "2026-09-27T11:00:00.000Z",
+  };
+
+  async function modelText(read: () => Response): Promise<{ text: string; reads: string[] }> {
+    const reads: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      reads.push(`${request.method} ${new URL(request.url).pathname}`);
+      return read();
+    }));
+    const messenger = createRelayMessenger(bindings());
+    const message = messenger.adapter.parseMessage({
+      chatId: DIRECT_CHAT_ID,
+      message: {
+        chat: { id: DIRECT_CHAT_ID, is_group: false },
+        direction: "inbound",
+        id: DIRECT_MESSAGE_ID,
+        parts: [{ type: "text", value: "what did you mean by this?" }],
+        reply_to: { message_id: TARGET_ID, part_index: 1 },
+        sender_handle: handle(USER_ID, "relay_user"),
+      },
+    } as never);
+    const event = await messenger.toEvent({
+      eventKind: "direct-message",
+      message,
+      thread,
+    } as never) as { message?: { text: string } };
+    return { text: event.message!.text, reads };
+  }
+
+  it("reads the Message it answers once and names who sent it and what it says", async () => {
+    const { text, reads } = await modelText(() => Response.json(target));
+    expect(reads).toEqual([`GET /v1/messages/${TARGET_ID}`]);
+    const [words, line] = text.split("\n\n");
+    expect(words).toBe("what did you mean by this?");
+    expect(JSON.parse(line!.slice(line!.indexOf("{")))).toEqual({
+      reply_to: {
+        id: TARGET_ID,
+        from: "you",
+        part_index: 1,
+        text: "Take the long way round the lake.",
+      },
+    });
+  });
+
+  it("names the target by id when it cannot be read", async () => {
+    const { text } = await modelText(() => Response.json({ error: { code: 1004 } }, { status: 404 }));
+    expect(text).toContain(`{"reply_to":{"id":"${TARGET_ID}","unavailable":true}}`);
+  });
+});
+
 describe("canonical Relay delivery", () => {
   it("marks the Relay Chat Read through the current SDK route", async () => {
     const calls: Array<[RequestInfo | URL, RequestInit | undefined]> = [];

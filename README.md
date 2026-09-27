@@ -10,6 +10,8 @@ It uses:
 - one root Think conversation per Relay Chat;
 - signed Standard Webhooks ingress at `POST /webhooks/relay`;
 - direct-message replies and canonical structured mentions in groups;
+- a person's swipe-reply reaches the model with the Message it answers (its
+  sender, the swiped part and its words), read once with `fetchMessage`;
 - one buffered, idempotent Relay Message per model turn.
 
 There are no application-owned event or send tables, polling loops, outbound

@@ -6,6 +6,8 @@ import {
 } from "@cloudflare/think";
 import {
   chatSdkMessenger,
+  defaultChatSdkEvent,
+  normalizeMessengers,
   ThinkMessengerStateAgent,
   type ThinkMessengers,
 } from "@cloudflare/think/messengers";
@@ -21,6 +23,7 @@ import {
   requireRelayWebhookSecret,
 } from "./env";
 import { starterModel } from "./model";
+import { replyTargetLine } from "./reply-target";
 import {
   createReplyAction,
   markRelayChatRead,
@@ -37,14 +40,15 @@ const UUID =
 
 export function createRelayMessenger(env: Bindings) {
   const handle = requireRelayAgentHandle(env);
-  return chatSdkMessenger({
-    adapter: createRelayAdapter({
-      baseUrl: env.RELAY_API_ORIGIN,
-      token: requireRelayToken(env),
-      typing: false,
-      userName: handle,
-      webhookSecret: requireRelayWebhookSecret(env),
-    }),
+  const adapter = createRelayAdapter({
+    baseUrl: env.RELAY_API_ORIGIN,
+    token: requireRelayToken(env),
+    typing: false,
+    userName: handle,
+    webhookSecret: requireRelayWebhookSecret(env),
+  });
+  const relay = chatSdkMessenger({
+    adapter,
     adapterName: "relay",
     capabilities: {
       canEditMessages: false,
@@ -70,6 +74,22 @@ export function createRelayMessenger(env: Bindings) {
     verifyWebhook: false,
     userName: handle,
   });
+  // Think's own event, with the Message a swipe-reply answers added to the
+  // text the model reads (src/reply-target.ts). `toEvent` is Think's hook for
+  // this; the default comes from Think's own normalizer.
+  const [normalized] = normalizeMessengers({ relay });
+  return {
+    ...relay,
+    toEvent: async (input: Parameters<NonNullable<typeof relay.toEvent>>[0]) => {
+      const event = defaultChatSdkEvent(normalized!, input);
+      const line = input.message
+        && await replyTargetLine(adapter, input.message as Parameters<typeof replyTargetLine>[1]);
+      if (event.message && line) {
+        event.message.text = [event.message.text, line].filter(Boolean).join("\n\n");
+      }
+      return event;
+    },
+  };
 }
 
 export class RelayChatAgent extends Think<Bindings> {
