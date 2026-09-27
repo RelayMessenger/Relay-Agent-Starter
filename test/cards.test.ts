@@ -27,6 +27,18 @@ describe("cards", () => {
       .toBe("/components/1/text");
   });
 
+  it("sends a long button label back to be shortened", () => {
+    const card = (text: string) => [
+      { child: "b", component: "Card", id: "root" },
+      { component: "Text", id: "l", text },
+      { action: { functionCall: { args: { url: "https://x.test" }, call: "openUrl" } }, child: "l", component: "Button", id: "b" },
+    ];
+    expect(cardIssues(card("Order on Tania's"))).toEqual([]);
+    expect(cardIssues(card("Order the 14\" Pepperoni & Mushroom Stuffed, $20.83"))).toEqual([
+      expect.objectContaining({ path: "/components/1/text" }),
+    ]);
+  });
+
   it("an empty card (no root, or a missing child) never goes out", () => {
     expect(cardIssues([{ component: "Text", id: "t", text: "hi" }])[0]!.message).toContain('"root"');
     expect(cardIssues([{ child: "nope", component: "Card", id: "root" }])[0]!.message).toContain('"nope"');

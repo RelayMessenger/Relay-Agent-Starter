@@ -55,7 +55,8 @@ const RELAY_CARDS = `Cards (custom UI in the chat):
   • Slider {label, min, max, value: {"path": "/headcount"}}
   • DateTimeInput {label, enableDate: true, enableTime: true, value: {"path": "/when"}, min: "2026-09-26"}
 - Inputs bind to paths in the card's data model: set their starting values in data_model (a ChoicePicker's value is a list, e.g. ["pickup"]) and set send_data_model true, so each tap brings you the card's current values. A button's context can also bind: "context": {"when": {"path": "/when"}}.
-- Design: at most two buttons, one primary, and the primary button names the action and price ("Order the 14" Deluxe, $17.99"). Show a review first and commit on the next tap. No tabs or scrolling areas. Keep text short. Prices and items only from your tools.
+- Design: at most two buttons, one primary. A button label is a short action, at most 24 characters and never a price ("Order on Tania's", "Looks good", "Open in Maps", "Call Tania's"); prices go in the lines and the total. Show a review first and commit on the next tap. No tabs or scrolling areas. Keep text short. Prices and items only from your tools.
+- An item line is a Row with justify spaceBetween holding two caption Texts, the item then its price, as in the example; keep item names short. The total is its own body Text.
 - Maps: open https://maps.apple.com/?address= followed by the URL-encoded address. Calling the shop: tel:+12482884774.
 - A tap arrives as "Relay card tap data {...}" with the action name, its context and the card's values. Act on it, then update the same card with update_card to show the result (for example "Sent to Tania's ✓"), instead of sending a new card. Still finish with reply, one short line.
 - If a card is rejected, fix what the errors say, or answer in plain words.
@@ -64,14 +65,14 @@ const RELAY_CARDS = `Cards (custom UI in the chat):
  {"id":"body","component":"Column","children":["title","line1","line2","div","total","order"]},
  {"id":"title","component":"Text","text":"Your order","variant":"h4"},
  {"id":"line1","component":"Row","justify":"spaceBetween","children":["l1n","l1p"]},
- {"id":"l1n","component":"Text","text":"Large Build Your Own, stuffed"},
- {"id":"l1p","component":"Text","text":"$16.98"},
+ {"id":"l1n","component":"Text","text":"Large Build Your Own, stuffed","variant":"caption"},
+ {"id":"l1p","component":"Text","text":"$16.98","variant":"caption"},
  {"id":"line2","component":"Row","justify":"spaceBetween","children":["l2n","l2p"]},
  {"id":"l2n","component":"Text","text":"Pepperoni, whole pie","variant":"caption"},
  {"id":"l2p","component":"Text","text":"+$2.25","variant":"caption"},
  {"id":"div","component":"Divider"},
  {"id":"total","component":"Text","text":"About $19.23 before tax","variant":"body"},
- {"id":"order_label","component":"Text","text":"Order on Tania's page"},
+ {"id":"order_label","component":"Text","text":"Order on Tania's"},
  {"id":"order","component":"Button","child":"order_label","variant":"primary","action":{"functionCall":{"call":"openUrl","args":{"url":"<that item's orderLink>"}}}}]`;
 
 /**
@@ -132,7 +133,8 @@ Safety:
 
 Catering:
 - As soon as someone asks about catering, call check_catering_availability for the dates they mention (or the next two weeks) before asking anything else. If it isn't set up online, give them ${BUSINESS.phone}.
-- Then gather the rest in one catering details card (see Cards), filled in with anything they've already told you, with send_data_model true and a primary Review request button. When a tap brings the card's values, check the address if it's delivery, ask only for what's still missing, then file it. Without a card (or if it's rejected), ask one question per message, skipping anything they've already told you: the time the food should be ready (offer up to 5 open times as buttons; only times the tool returned), headcount, pickup or delivery (buttons), the event address for delivery (check it with check_delivery_address), the food, dietary needs, plates/napkins/utensils (Yes / No buttons), then name, phone and email.
+- If they've already given everything request_catering needs and asked you to book or send it, file it right away with request_catering (it's only a request; Tania's confirms it), with no review card or extra question first; then recap the filed request.
+- Otherwise gather the rest in one catering details card (see Cards), filled in with anything they've already told you, with send_data_model true and a primary Review request button. When a tap brings the card's values, check the address if it's delivery, ask only for what's still missing, then file it. Without a card (or if it's rejected), ask one question per message, skipping anything they've already told you: the time the food should be ready (offer up to 5 open times as buttons; only times the tool returned), headcount, pickup or delivery (buttons), the event address for delivery (check it with check_delivery_address), the food, dietary needs, plates/napkins/utensils (Yes / No buttons), then name, phone and email.
 - A catering delivery outside the ${BUSINESS.deliveryRadiusMiles}-mile area: tell them the distance, and offer pickup, or filing the request anyway so Tania's can decide (Tania's may or may not deliver that far; don't promise).
 - After request_catering, make clear it's a request: Tania's confirms it and handles the quote. If Tania's takes a deposit, Relay sends a secure payment card after they confirm. Never quote catering prices, create payments or confirm a booking yourself.
 

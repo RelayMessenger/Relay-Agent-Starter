@@ -34,6 +34,16 @@ function card(result: TurnResult): Array<Record<string, unknown>> {
   expect(cardIssues(reply!.card!.components)).toEqual([]);
   return reply!.card!.components;
 }
+/** Item lines (two Texts spread apart) use captions, the layout Relay's app keeps on one line. */
+function captionLines(list: Array<Record<string, unknown>>): void {
+  const byId = new Map(list.map((component) => [component.id, component]));
+  for (const row of list.filter((component) => component.component === "Row" && component.justify === "spaceBetween")) {
+    const kids = (row.children as string[]).map((id) => byId.get(id));
+    if (kids.length === 2 && kids.every((kid) => kid?.component === "Text")) {
+      expect(kids.map((kid) => kid!.variant), `row ${String(row.id)}`).toEqual(["caption", "caption"]);
+    }
+  }
+}
 const components = (result: TurnResult) =>
   result.messages.flat().filter((part) => part.type === "buttons" || part.type === "selection");
 
@@ -357,7 +367,9 @@ describe.skipIf(!EVAL_CONFIGURED)(`Tania's agent on ${process.env.EVAL_MODEL ?? 
       { now: OPEN },
     );
     sent(result);
-    const json = JSON.stringify(card(result));
+    const list = card(result);
+    captionLines(list);
+    const json = JSON.stringify(list);
     expect(json).toMatch(/pepperoni/iu);
     expect(json).toMatch(/\$\d+\.\d\d/u);
   });
@@ -381,6 +393,8 @@ describe.skipIf(!EVAL_CONFIGURED)(`Tania's agent on ${process.env.EVAL_MODEL ?? 
   it("shows an example receipt as a card that draws", async () => {
     const result = await runTurn(say("Show me an example receipt"), { now: CLOSED });
     sent(result);
-    expect(card(result).length).toBeGreaterThan(2);
+    const list = card(result);
+    expect(list.length).toBeGreaterThan(2);
+    captionLines(list);
   });
 });

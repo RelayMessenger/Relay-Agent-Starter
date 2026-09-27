@@ -56,6 +56,9 @@ function schemaIssue(errors: OutputUnit[]): { path: string; message: string } {
   return { message: deepest?.error ?? "It does not match the A2UI v0.9.1 schema.", path: pointer(deepest?.instanceLocation ?? "#") };
 }
 
+/** Fits a card's full-width button on the narrowest iPhone at 16 pt. */
+export const MAX_BUTTON_LABEL = 24;
+
 export interface CardIssue {
   path: string;
   message: string;
@@ -81,6 +84,18 @@ export function cardIssues(components: ReadonlyArray<Record<string, unknown>>): 
     if (!result.valid) {
       const issue = schemaIssue(result.errors);
       issues.push({ message: issue.message, path: `/components/${index}${issue.path}` });
+    }
+    // Tania's own rule, not the server's: Relay's app never wraps a button
+    // label, so a long one is cut off at the card's edge.
+    if (name === "Button") {
+      const label = components.find((other) => other.id === component.child);
+      const text = typeof label?.text === "string" ? label.text : "";
+      if (text.length > MAX_BUTTON_LABEL) {
+        issues.push({
+          message: `The button label "${text}" is ${text.length} characters; keep it to ${MAX_BUTTON_LABEL} or fewer, a short action without a price.`,
+          path: `/components/${components.indexOf(label!)}/text`,
+        });
+      }
     }
     const children = [component.child, ...(Array.isArray(component.children) ? component.children : [])];
     for (const child of children) {
