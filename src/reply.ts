@@ -1,7 +1,7 @@
 import { action, type Action } from "@cloudflare/think";
 import Relay, { indexedIdempotencyKey, type RequestOptions } from "@relaymessenger/sdk";
 
-import { composeAnswer, REPLY_DESCRIPTION, replyInputSchema } from "./action-specs";
+import { composeAnswer, REPLY_DESCRIPTION, replyCard, replyInputSchema } from "./action-specs";
 import { cardRejection, sendCard } from "./cards";
 import { answerToMessages } from "./answer";
 import type { Bindings, RelayConfiguration } from "./env";
@@ -116,15 +116,16 @@ export function createReplyAction(deps: ReplyDependencies): Action {
     // A reply turned back for a bad card sent nothing, so a retry with a
     // different card is a different call; Relay's key still guards the send.
     idempotencyKey: ({ input }) =>
-      `message:${deps.turn().messageId}${input.card ? `:${fingerprint(JSON.stringify(input.card))}` : ""}`,
+      `message:${deps.turn().messageId}${input.card_components ? `:${fingerprint(JSON.stringify(replyCard(input)))}` : ""}`,
     execute: async (input, context) => {
       const turn = deps.turn();
       if (await deps.superseded(turn)) {
         console.warn(JSON.stringify({ chat_id: turn.chatId, event: "reply_superseded" }));
         return { status: "superseded" };
       }
-      const cards = interactiveParts(deps.env) && input.card !== undefined;
-      const rejection = cards ? cardRejection(input.card!.components) : undefined;
+      const requested = replyCard(input);
+      const cards = interactiveParts(deps.env) && requested !== undefined;
+      const rejection = cards ? cardRejection(requested!.components) : undefined;
       if (rejection) {
         if (rejectedCards.size > 100) rejectedCards.clear();
         rejectedCards.set(turn.messageId, (rejectedCards.get(turn.messageId) ?? 0) + 1);
@@ -135,12 +136,12 @@ export function createReplyAction(deps: ReplyDependencies): Action {
         return { ...sent, card: { issues: rejection.issues, status: "not_sent" } };
       }
       const sent = await sendRelayReply(deps.env, turn, composeAnswer(input), context.signal);
-      if (!input.card) return sent;
+      if (!requested) return sent;
       if (!cards) return { ...sent, card: { status: "not_available_on_this_server" } };
       // The card follows the words as its own Message, with its own key.
       const card = await sendCard(relayClient(deps.env), turn.chatId, {
-        ...input.card,
-        surface_id: input.card.surface_id ?? `card-${turn.messageId.slice(-12)}`,
+        ...requested,
+        surface_id: requested.surface_id ?? `card-${turn.messageId.slice(-12)}`,
       }, `${relayReplyIdempotencyKey(turn.messageId)}:card`);
       return { ...sent, card };
     },

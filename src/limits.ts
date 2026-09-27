@@ -10,6 +10,13 @@ export const MAX_STEPS = 10;
 // per token used, so this is headroom, not a typical spend.
 export const MAX_OUTPUT_TOKENS = 8_192;
 
+// glm-5.3 always reasons, and with no reasoning_effort Workers AI runs it at
+// "max" (developers.cloudflare.com/workers-ai/models/glm-5.3: "Supported
+// levels: max, high, low. Reasoning cannot be disabled", max the default). A
+// customer waited 3.5 minutes for one reply at max (2026-09-27). Chosen by
+// the live evals; see test/eval.
+export const REASONING_EFFORT: "low" | "high" = "low";
+
 interface StepView {
   toolResults: ReadonlyArray<{ toolName: string; output?: unknown }>;
 }

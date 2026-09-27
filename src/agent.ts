@@ -45,7 +45,7 @@ import {
   withCardTaps,
 } from "./cards";
 import { deliveryDistance, requestRelayLocation, withComponentContext } from "./interactive";
-import { forcedReplyStep, MAX_OUTPUT_TOKENS, MAX_STEPS, replyLanded } from "./limits";
+import { forcedReplyStep, MAX_OUTPUT_TOKENS, MAX_STEPS, REASONING_EFFORT, replyLanded } from "./limits";
 import { SNAPSHOT_MENU } from "./menu";
 import { starterModel } from "./model";
 import { systemPrompt } from "./prompt";
@@ -213,6 +213,7 @@ export class RelayChatAgent extends Think<Bindings> {
       activeTools: context.tools.reply ? Object.keys(context.tools) : [],
       maxOutputTokens: MAX_OUTPUT_TOKENS,
       maxSteps: MAX_STEPS,
+      providerOptions: { "workers-ai": { reasoning_effort: REASONING_EFFORT } },
       sendReasoning: false,
       // Every step is a tool call; the turn ends when the one reply lands
       // (not one turned back, unsent, for a bad card).

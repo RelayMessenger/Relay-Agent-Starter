@@ -56,6 +56,12 @@ describe("cards", () => {
     ]);
   });
 
+  it("moves a Button's context from beside its event to inside it", () => {
+    const button = { action: { context: { number: 3 }, event: { name: "flashcard_next" } }, child: "l", component: "Button", id: "b" };
+    expect(cleanComponents([button])[0]!.action).toEqual({ event: { context: { number: 3 }, name: "flashcard_next" } });
+    expect(cardRejection([{ child: "b", component: "Card", id: "root" }, { component: "Text", id: "l", text: "Next card" }, button])).toBeUndefined();
+  });
+
   it("turns a tap into data the model can read", () => {
     const context = cardTapContext([{
       data: [{ action: { context: { item: "14-deluxe" }, name: "confirm_order", surfaceId: "order-1" }, version: "v0.9.1" }],

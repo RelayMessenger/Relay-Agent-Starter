@@ -223,7 +223,7 @@ describe("locked runtime contracts", () => {
     );
     expect(reply).toContain("return `tanias-pizza-agent:${messageId}`");
     expect(reply).toContain(
-      "`message:${deps.turn().messageId}${input.card ? `:${fingerprint(JSON.stringify(input.card))}` : \"\"}`",
+      "`message:${deps.turn().messageId}${input.card_components ? `:${fingerprint(JSON.stringify(replyCard(input)))}` : \"\"}`",
     );
     expect(index).toContain(
       "`tanias-pizza-agent:catering:${decision.bookingUid}:${decision.status}`",

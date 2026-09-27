@@ -56,6 +56,10 @@ function schemaIssue(errors: OutputUnit[]): { path: string; message: string } {
   return { message: deepest?.error ?? "It does not match the A2UI v0.9.1 schema.", path: pointer(deepest?.instanceLocation ?? "#") };
 }
 
+const ACTION_SHAPES = 'An action is {"event": {"name": "next", "context": {"number": 2}}} or '
+  + '{"functionCall": {"call": "openUrl", "args": {"url": "https://..."}}}; each context value is a string, a number, '
+  + 'true or false, a list, or {"path": "/name"}, never another object.';
+
 /** Fits a card's full-width button on the narrowest iPhone at 16 pt. */
 export const MAX_BUTTON_LABEL = 24;
 
@@ -83,7 +87,9 @@ export function cardIssues(components: ReadonlyArray<Record<string, unknown>>): 
     const result = validate(component, schema({ $ref: `${catalog.$id}#/components/${name}` }), "2020-12", catalogLookup(), false);
     if (!result.valid) {
       const issue = schemaIssue(result.errors);
-      issues.push({ message: issue.message, path: `/components/${index}${issue.path}` });
+      // The schema's words for a bad action don't say what a good one is.
+      const hint = issue.path.startsWith("/action") ? ` ${ACTION_SHAPES}` : "";
+      issues.push({ message: issue.message + hint, path: `/components/${index}${issue.path}` });
     }
     // Tania's own rule, not the server's: Relay's app never wraps a button
     // label, so a long one is cut off at the card's edge.
@@ -97,7 +103,8 @@ export function cardIssues(components: ReadonlyArray<Record<string, unknown>>): 
         });
       }
     }
-    const children = [component.child, ...(Array.isArray(component.children) ? component.children : [])];
+    const tabs = Array.isArray(component.tabs) ? component.tabs.map((tab: { child?: unknown }) => tab?.child) : [];
+    const children = [component.child, ...(Array.isArray(component.children) ? component.children : []), ...tabs];
     for (const child of children) {
       if (typeof child === "string" && !ids.has(child)) {
         issues.push({ message: `"${child}" is not the id of any component in this card.`, path: `/components/${index}` });

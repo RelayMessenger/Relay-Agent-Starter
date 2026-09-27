@@ -9,7 +9,7 @@ import {
 } from "ai";
 import type { MessagePart } from "@relaymessenger/sdk";
 
-import { forcedReplyStep, MAX_OUTPUT_TOKENS, MAX_STEPS, replyLanded } from "../../src/limits";
+import { forcedReplyStep, MAX_OUTPUT_TOKENS, MAX_STEPS, REASONING_EFFORT, replyLanded } from "../../src/limits";
 import { cardRejection } from "../../src/cards";
 import { cateringRequestInput, cateringRequestProblem, PENDING_STATUS } from "../../src/catering";
 import {
@@ -71,6 +71,8 @@ function model() {
         for (const message of parsed.messages ?? []) {
           if (message.content === null) message.content = "";
         }
+        // As the agent sends it (providerOptions["workers-ai"]); EVAL_REASONING compares levels.
+        (parsed as { reasoning_effort?: string }).reasoning_effort = process.env.EVAL_REASONING ?? REASONING_EFFORT;
         body = JSON.stringify(parsed);
       }
       const response = await fetch(input, { ...init, body });
@@ -126,7 +128,7 @@ export async function runTurn(
       inputSchema: replyInputSchema,
       execute: async (input) => {
         // As the agent does: a bad card is turned back, unsent, once.
-        const rejection = input.card ? cardRejection(input.card.components) : undefined;
+        const rejection = input.card_components ? cardRejection(input.card_components) : undefined;
         if (rejection && cardRejections++ === 0) return rejection;
         reply = composeAnswer(input);
         return { status: "sent" };

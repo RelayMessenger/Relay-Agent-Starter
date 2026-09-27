@@ -62,8 +62,20 @@ function cleanStrings(value: unknown): unknown {
   return value;
 }
 
+/**
+ * glm-5.3 sometimes writes a Button's context beside its event
+ * ({"context": {...}, "event": {"name": ...}}) instead of inside it; there is
+ * only one reading of that, so put it where A2UI's Action puts it.
+ */
+function nestEventContext(component: Record<string, unknown>): Record<string, unknown> {
+  const action = component.action as { context?: unknown; event?: Record<string, unknown> } | undefined;
+  if (!action?.event || action.context === undefined || action.event.context !== undefined) return component;
+  const { context, ...rest } = action;
+  return { ...component, action: { ...rest, event: { ...action.event, context } } };
+}
+
 export function cleanComponents(components: ReadonlyArray<Record<string, unknown>>): A2uiComponent[] {
-  return components.map((component) => cleanStrings(component) as A2uiComponent);
+  return components.map((component) => cleanStrings(nestEventContext(component)) as A2uiComponent);
 }
 
 function refusal(error: unknown) {

@@ -5,7 +5,7 @@ import {
 } from "@relaymessenger/sdk";
 import { z } from "zod";
 
-import { cardInputSchema } from "./cards";
+import { cardInputSchema, type CardInput } from "./cards";
 
 /**
  * The model-facing contract of the agent's Actions, shared by the Worker
@@ -30,10 +30,16 @@ export const replyInputSchema = z.object({
     "1 to 5 buttons under your words. A url button opens that page (use for ordering an item, gift cards, "
     + "Rewards); a plain button sends its label back as the customer's answer. " + BUTTONS_GUIDANCE,
   ),
-  card: cardInputSchema.optional().describe(
-    "A Relay card (A2UI) sent right after your words: an order summary, a receipt, a location with an Open in Maps "
-    + "button, a catering review with a slider or date picker, a details form. See the card rules in your instructions.",
+  // A card's fields sit at the top level, not in a nested "card" object:
+  // glm-5.3 on Workers AI garbled nested tool arguments into keys like
+  // "card<arg_key>components", and the card was silently dropped (2026-09-27).
+  card_components: cardInputSchema.shape.components.optional().describe(
+    "A Relay card (A2UI) sent right after your words: every component, flat, each with a unique id; one has id "
+    + "\"root\" (a Card). For an order summary, a receipt, a location, a catering form, a flashcard. See the card rules.",
   ),
+  card_surface_id: cardInputSchema.shape.surface_id,
+  card_data_model: cardInputSchema.shape.data_model,
+  card_send_data_model: cardInputSchema.shape.send_data_model,
   selection: z.array(z.object({
     value: z.string().min(1).max(100).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/u),
     label: z.string().trim().min(1).max(80),
@@ -44,6 +50,17 @@ export const replyInputSchema = z.object({
 }).strict();
 
 export type ReplyInput = z.infer<typeof replyInputSchema>;
+
+/** The card a reply carries, from its card_* fields (or undefined). */
+export function replyCard(input: ReplyInput): CardInput | undefined {
+  if (!input.card_components) return undefined;
+  return {
+    components: input.card_components,
+    ...(input.card_surface_id ? { surface_id: input.card_surface_id } : {}),
+    ...(input.card_data_model ? { data_model: input.card_data_model } : {}),
+    ...(input.card_send_data_model ? { send_data_model: input.card_send_data_model } : {}),
+  };
+}
 
 /**
  * The reply as one answer in the SDK's text contract (answerMessages), so

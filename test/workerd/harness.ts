@@ -169,8 +169,8 @@ function testModel(): MockLanguageModelV3 {
       }
       if (prompt.includes(BAD_CARD_TRIGGER)) {
         return toolCallStream("reply", prompt.includes("card_invalid")
-          ? { card: { components: TEST_CARD, surface_id: "receipt-1" }, text: "Here's a sample receipt." }
-          : { card: { components: TEST_CARD.slice(1), surface_id: "receipt-1" }, text: "Here's a sample receipt." });
+          ? { card_components: TEST_CARD, card_surface_id: "receipt-1", text: "Here's a sample receipt." }
+          : { card_components: TEST_CARD.slice(1), card_surface_id: "receipt-1", text: "Here's a sample receipt." });
       }
       if (prompt.includes("Relay card tap data") && prompt.includes("harness_confirm_tap")) {
         return prompt.includes('"status":"updated"') || prompt.includes('\\"status\\":\\"updated\\"')
@@ -181,7 +181,7 @@ function testModel(): MockLanguageModelV3 {
           });
       }
       if (prompt.includes(CARD_TRIGGER)) {
-        return toolCallStream("reply", { card: { components: TEST_CARD, surface_id: "order-1" }, text: "Here's your order." });
+        return toolCallStream("reply", { card_components: TEST_CARD, card_surface_id: "order-1", text: "Here's your order." });
       }
       if (prompt.includes(SLOW_TRIGGER) && !prompt.includes(FOLLOWUP_TRIGGER)) {
         // A slow turn the customer's next Message overtakes.
