@@ -77,6 +77,9 @@ export function cardIssues(components: ReadonlyArray<Record<string, unknown>>): 
   const catalog = relayCatalog as CatalogDocument;
   const issues: CardIssue[] = [];
   const ids = new Set(components.map((component) => component.id));
+  // Which parents show each component: A2UI's components form a tree, so a
+  // component listed twice (a Button's label also in a Column) draws twice.
+  const parents = new Map<unknown, string[]>();
   if (!ids.has("root")) issues.push({ message: 'No component has id "root"; the card has nothing to show.', path: "/components" });
   for (const [index, component] of components.entries()) {
     const name = component.component;
@@ -109,6 +112,16 @@ export function cardIssues(components: ReadonlyArray<Record<string, unknown>>): 
       if (typeof child === "string" && !ids.has(child)) {
         issues.push({ message: `"${child}" is not the id of any component in this card.`, path: `/components/${index}` });
       }
+      if (typeof child === "string") parents.set(child, [...(parents.get(child) ?? []), String(component.id)]);
+    }
+  }
+  for (const [child, shownBy] of parents) {
+    if (shownBy.length > 1) {
+      issues.push({
+        message: `"${String(child)}" is shown by both ${shownBy.map((id) => `"${id}"`).join(" and ")}, so it appears twice. `
+          + "A component belongs to one parent; a Button's label Text is only the Button's child, never also in a Column.",
+        path: `/components/${components.findIndex((component) => component.id === child)}`,
+      });
     }
   }
   return issues;

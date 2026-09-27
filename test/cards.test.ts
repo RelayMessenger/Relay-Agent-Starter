@@ -13,6 +13,18 @@ describe("cards", () => {
     expect(cardIssues(example)).toEqual([]);
   });
 
+  it("the prompt's flashcard example is valid, and the card that drew its label twice is not", () => {
+    const prompt = systemPrompt(new Date("2026-09-24T18:00:00Z"));
+    const start = prompt.indexOf("[", prompt.indexOf("Example, a flashcard card"));
+    // The list ends at the first "]" that closes a line (the tabs' "]" is mid-line).
+    const example = JSON.parse(prompt.slice(start, prompt.indexOf("]\n", start) + 1));
+    expect(cardIssues(example)).toEqual([]);
+    // Sent on staging 2026-09-27: "Next card" inside the Button and again under it.
+    const doubled = example.map((component: { id: string }) =>
+      component.id === "body" ? { ...component, children: ["tag", "tabs", "next", "next_label"] } : component);
+    expect(cardIssues(doubled)).toEqual([expect.objectContaining({ message: expect.stringContaining('"next_label" is shown by both "body" and "next"') })]);
+  });
+
   it("checks components the way Relay's server does", () => {
     expect(cardIssues([
       { component: "Card", child: "body", id: "root" },

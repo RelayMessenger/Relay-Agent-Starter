@@ -59,7 +59,7 @@ const RELAY_CARDS = `Cards (custom UI in the chat):
 - Inputs bind to paths in the card's data model: set their starting values in card_data_model (a ChoicePicker's value is a list, e.g. ["pickup"]) and set card_send_data_model true, so each tap brings you the card's current values. A button's context can also bind: "context": {"when": {"path": "/when"}}.
 - Design: at most two buttons, one primary. A button label is a short action, at most 24 characters and never a price ("Order on Tania's", "Looks good", "Open in Maps", "Call Tania's"); prices go in the lines and the total. Show a review first and commit on the next tap. No scrolling areas, and Tabs only for a flashcard. Keep text short. Prices and items only from your tools.
 - An item line is a Row with justify spaceBetween holding two caption Texts, the item then its price, as in the example; keep item names short. The total is its own body Text.
-- Flashcards (and a quiz when they ask for flashcards): send ONE flashcard now, never a whole deck, and don't plan the rest ahead. Each is its own card: a caption Text "Flash card 1", Tabs with a Question tab and an Answer tab (each a body Text; the answer from your menu tools), and a primary "Next card" button with "action": {"event": {"name": "flashcard_next", "context": {"number": 2}}}. Your words: one short line. When a flashcard_next tap arrives, send the next flashcard the same way as a new card (a new card_surface_id), with a different menu fact. A quiz with answer choices can instead be one question per message as buttons.
+- Flashcards (and a quiz when they ask for flashcards): send ONE flashcard now, never a whole deck, and don't plan the rest ahead. Each is its own card, built exactly like the flashcard example below: a caption Text "Flash card 1", Tabs with a Question tab and an Answer tab (each a body Text; the answer from your menu tools), and, unless it's the last one, a primary "Next card" Button. Your words: one short line. When a flashcard_next tap arrives, send the next flashcard the same way as a new card (a new card_surface_id), with a different menu fact. A quiz with answer choices can instead be one question per message as buttons.
 - Maps: open https://maps.apple.com/?address= followed by the URL-encoded address. Calling the shop: tel:+12482884774.
 - A tap arrives as "Relay card tap data {...}" with the action name, its context and the card's values. Act on it, then update the same card with update_card to show the result (for example "Sent to Tania's ✓"), instead of sending a new card. Still finish with reply, one short line.
 - If a card is rejected, fix what the errors say, or answer in plain words.
@@ -76,7 +76,16 @@ const RELAY_CARDS = `Cards (custom UI in the chat):
  {"id":"div","component":"Divider"},
  {"id":"total","component":"Text","text":"About $19.23 before tax","variant":"body"},
  {"id":"order_label","component":"Text","text":"Order on Tania's"},
- {"id":"order","component":"Button","child":"order_label","variant":"primary","action":{"functionCall":{"call":"openUrl","args":{"url":"<that item's orderLink>"}}}}]`;
+ {"id":"order","component":"Button","child":"order_label","variant":"primary","action":{"functionCall":{"call":"openUrl","args":{"url":"<that item's orderLink>"}}}}]
+- Example, a flashcard card (components):
+[{"id":"root","component":"Card","child":"body"},
+ {"id":"body","component":"Column","children":["tag","tabs","next"]},
+ {"id":"tag","component":"Text","text":"Flash card 1","variant":"caption"},
+ {"id":"tabs","component":"Tabs","tabs":[{"title":"Question","child":"q"},{"title":"Answer","child":"a"}]},
+ {"id":"q","component":"Text","text":"What size is Tania's large pizza?","variant":"body"},
+ {"id":"a","component":"Text","text":"14 inches","variant":"body"},
+ {"id":"next_label","component":"Text","text":"Next card"},
+ {"id":"next","component":"Button","child":"next_label","variant":"primary","action":{"event":{"name":"flashcard_next","context":{"number":2}}}}]`;
 
 /**
  * Tania's persona and guardrails. Facts come from business.ts and the tools;
