@@ -49,7 +49,7 @@ function git(cwd: string, ...args: string[]): string {
   }).trim();
 }
 
-function createFixture(branch = "staging"): DeployFixture {
+function createFixture(branch = "main"): DeployFixture {
   const root = mkdtempSync(join(tmpdir(), "relay-deploy-test-"));
   temporaryRoots.push(root);
   const remote = join(root, "remote.git");
@@ -77,7 +77,6 @@ function createFixture(branch = "staging"): DeployFixture {
   writeFileSync(join(repo, "wrangler.jsonc"), JSON.stringify({
     env: {
       production: { name: "relay-think-agent-starter" },
-      staging: { name: "relay-think-agent-starter-staging" },
     },
     name: "relay-think-agent-starter-development",
   }));
@@ -154,7 +153,6 @@ function expectNoDeploy(fixture: DeployFixture): void {
 describe("guarded deploy", () => {
   it("fetches the exact branch and invokes only its fixed Wrangler environment", () => {
     for (const target of [
-      { branch: "staging", environment: "staging" },
       { branch: "main", environment: "production" },
     ]) {
       const fixture = createFixture(target.branch);
@@ -191,17 +189,17 @@ describe("guarded deploy", () => {
     git(
       fixture.repo,
       "update-ref",
-      "refs/remotes/origin/staging",
+      "refs/remotes/origin/main",
       localCommit,
     );
-    expect(git(fixture.remote, "rev-parse", "refs/heads/staging"))
+    expect(git(fixture.remote, "rev-parse", "refs/heads/main"))
       .toBe(fixture.initialCommit);
 
-    const result = runDeploy(fixture, ["staging"]);
+    const result = runDeploy(fixture, ["production"]);
 
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain(
-      "fetched origin/staging is not HEAD",
+      "fetched origin/main is not HEAD",
     );
     expectNoDeploy(fixture);
   });
@@ -209,22 +207,22 @@ describe("guarded deploy", () => {
   it("rejects a stale origin ref after the configured remote advances", () => {
     const fixture = createFixture();
     const remoteCommit = commitRevision(fixture, "remote-advanced");
-    git(fixture.repo, "push", "--quiet", "origin", "staging");
+    git(fixture.repo, "push", "--quiet", "origin", "main");
     git(fixture.repo, "reset", "--hard", fixture.initialCommit);
     git(
       fixture.repo,
       "update-ref",
-      "refs/remotes/origin/staging",
+      "refs/remotes/origin/main",
       fixture.initialCommit,
     );
-    expect(git(fixture.remote, "rev-parse", "refs/heads/staging"))
+    expect(git(fixture.remote, "rev-parse", "refs/heads/main"))
       .toBe(remoteCommit);
 
-    const result = runDeploy(fixture, ["staging"]);
+    const result = runDeploy(fixture, ["production"]);
 
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain(
-      "fetched origin/staging is not HEAD",
+      "fetched origin/main is not HEAD",
     );
     expectNoDeploy(fixture);
   });
@@ -233,7 +231,7 @@ describe("guarded deploy", () => {
     const extraArgument = createFixture();
     const extraResult = runDeploy(
       extraArgument,
-      ["staging", "--env", "production"],
+      ["production", "--env", "preview"],
     );
     expect(extraResult.status).not.toBe(0);
     expect(extraResult.stderr).toContain(
@@ -244,12 +242,12 @@ describe("guarded deploy", () => {
     const conflictingEnvironment = createFixture();
     const environmentResult = runDeploy(
       conflictingEnvironment,
-      ["staging"],
-      { CLOUDFLARE_ENV: "production" },
+      ["production"],
+      { CLOUDFLARE_ENV: "preview" },
     );
     expect(environmentResult.status).not.toBe(0);
     expect(environmentResult.stderr).toContain(
-      "CLOUDFLARE_ENV must be staging",
+      "CLOUDFLARE_ENV must be production",
     );
     expectNoDeploy(conflictingEnvironment);
   });
@@ -265,11 +263,11 @@ describe("guarded deploy", () => {
       `https://${credential}@127.0.0.1:1/relay.git`,
     );
 
-    const result = runDeploy(fixture, ["staging"]);
+    const result = runDeploy(fixture, ["production"]);
     const output = `${result.stdout}\n${result.stderr}`;
 
     expect(result.status).not.toBe(0);
-    expect(output).toContain("could not fetch staging from origin");
+    expect(output).toContain("could not fetch main from origin");
     expect(output).not.toContain(credential);
     expectNoDeploy(fixture);
   });

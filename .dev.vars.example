@@ -1,5 +1,5 @@
-# Staging Agent Token from Relay Console. Relay shows it once.
-RELAY_AGENT_TOKEN=replace-with-staging-agent-token
+# Agent Token from Relay Console. Relay shows it once.
+RELAY_AGENT_TOKEN=replace-with-agent-token
 
 # One-time signing_secret returned by POST /v1/webhook-subscriptions.
-RELAY_WEBHOOK_SECRET=whsec_replace-with-staging-webhook-secret
+RELAY_WEBHOOK_SECRET=whsec_replace-with-webhook-secret
