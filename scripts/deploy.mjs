@@ -10,11 +10,6 @@ const targets = {
     remote: "origin",
     worker: "relay-think-agent-starter",
   },
-  staging: {
-    branch: "staging",
-    remote: "origin",
-    worker: "relay-think-agent-starter-staging",
-  },
 };
 if (process.argv.length !== 3) {
   throw new Error("Deploy accepts exactly one environment argument.");
@@ -22,7 +17,7 @@ if (process.argv.length !== 3) {
 const environment = process.argv[2];
 const target = targets[environment];
 if (!target) {
-  throw new Error("Deploy environment must be staging or production.");
+  throw new Error("Deploy environment must be production.");
 }
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
