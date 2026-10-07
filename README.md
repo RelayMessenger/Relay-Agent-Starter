@@ -5,7 +5,7 @@ agent for [Relay Messenger](https://relayapp.im).
 
 It uses:
 
-- `@cloudflare/think@0.17.0` and native durable recovery;
+- `@cloudflare/think@0.20.1` and native durable recovery;
 - `chatSdkMessenger()` with Relay's official Chat SDK adapter;
 - one root Think conversation per Relay Chat;
 - signed Standard Webhooks ingress at `POST /webhooks/relay`;
