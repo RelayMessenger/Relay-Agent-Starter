@@ -2,7 +2,7 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "relay-think-agent-starter-development",
   "main": "src/index.ts",
-  "compatibility_date": "2026-09-01",
+  "compatibility_date": "2026-10-06",
   "compatibility_flags": ["nodejs_compat"],
   "observability": {
     "enabled": true,

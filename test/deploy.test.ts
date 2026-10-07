@@ -13,6 +13,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  realpathSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -50,7 +51,7 @@ function git(cwd: string, ...args: string[]): string {
 }
 
 function createFixture(branch = "staging"): DeployFixture {
-  const root = mkdtempSync(join(tmpdir(), "relay-deploy-test-"));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "relay-deploy-test-")));
   temporaryRoots.push(root);
   const remote = join(root, "remote.git");
   const repo = join(root, "repo");
