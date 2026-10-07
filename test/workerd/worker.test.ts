@@ -13,20 +13,18 @@ import {
 } from "../../src/agent";
 import type { Bindings } from "../../src/env";
 import { starterModel } from "../../src/model";
-import {
-  markRelayChatRead,
-  relayReplyIdempotencyKey,
-  sendRelayReply,
-} from "../../src/reply";
 import { TEST_REPLY_TEXT } from "./harness";
+
+// @relaymessenger/think's send Action keys each Message by the Relay Message
+// it answers, so a recovered turn replays it instead of sending it twice.
+function relayReplyIdempotencyKey(messageId: string): string {
+  return `relay-agent:${messageId}`;
+}
 
 const WEBHOOK_SECRET = "test-secret";
 const EVENT_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec11";
 const AGENT_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec12";
-const CHAT_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec13";
-const MESSAGE_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec14";
 const USER_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec15";
-const REPLY_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec16";
 const DIRECT_CHAT_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec20";
 const DIRECT_MESSAGE_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec21";
 const DIRECT_EVENT_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec22";
@@ -158,8 +156,8 @@ function expectedReplyBody(messageId: string) {
   const key = relayReplyIdempotencyKey(messageId);
   return {
     message: {
-      idempotency_key: key,
       parts: [{ type: "text", value: TEST_REPLY_TEXT }],
+      idempotency_key: key,
     },
   };
 }
@@ -203,6 +201,9 @@ function installRelayBackend(input: {
     ) {
       return new Response(null, { status: 204 });
     }
+    if (pathname === `/v1/chats/${input.chatId}/typing`) {
+      return new Response(null, { status: 204 });
+    }
     if (
       pathname === `/v1/chats/${input.chatId}/messages`
       && request.method === "POST"
@@ -244,11 +245,14 @@ function expectCanonicalTurn(
   chatId: string,
   messageId: string,
 ): void {
+  // Typing goes up before the model runs and comes down after the one send.
   expect(calls.map(({ method, pathname }) => [method, pathname])).toEqual([
+    ["POST", `/v1/chats/${chatId}/typing`],
     ["POST", `/v1/chats/${chatId}/read`],
     ["POST", `/v1/chats/${chatId}/messages`],
+    ["DELETE", `/v1/chats/${chatId}/typing`],
   ]);
-  const send = calls[1]!;
+  const send = calls[2]!;
   const key = relayReplyIdempotencyKey(messageId);
   expect(send.headers.get("authorization")).toBe("Bearer relay-test-token");
   expect(send.headers.get("idempotency-key")).toBe(key);
@@ -285,7 +289,7 @@ describe("Relay Think messenger", () => {
     });
   });
 
-  it("buffers visible output and leaves one canonical send to the reply Action", () => {
+  it("buffers visible output and leaves one canonical send to the Relay Actions", () => {
     const delivery = createRelayMessenger(bindings()).delivery;
     expect(delivery).toMatchObject({
       emptyResponseText: "",
@@ -372,72 +376,8 @@ describe("a person's swipe-reply reaches the model", () => {
   });
 });
 
-describe("canonical Relay delivery", () => {
-  it("marks the Relay Chat Read through the current SDK route", async () => {
-    const calls: Array<[RequestInfo | URL, RequestInit | undefined]> = [];
-    const fetchMock = vi.fn(async (
-      input: RequestInfo | URL,
-      init?: RequestInit,
-    ) => {
-      calls.push([input, init]);
-      return new Response(null, { status: 204 });
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    await markRelayChatRead(bindings(), CHAT_ID);
-
-    expect(fetchMock).toHaveBeenCalledOnce();
-    const [url, init] = calls[0]!;
-    expect(String(url)).toBe(
-      `https://api.staging.relayapp.im/v1/chats/${CHAT_ID}/read`,
-    );
-    expect(init?.method).toBe("POST");
-  });
-
-  it("commits one Message with a recovery-stable idempotency key", async () => {
-    const calls: Array<[RequestInfo | URL, RequestInit | undefined]> = [];
-    const fetchMock = vi.fn(async (
-      input: RequestInfo | URL,
-      init?: RequestInit,
-    ) => {
-      calls.push([input, init]);
-      return Response.json({
-        chat_id: CHAT_ID,
-        message: { id: REPLY_ID },
-      });
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(sendRelayReply(
-      bindings(),
-      { chatId: CHAT_ID, messageId: MESSAGE_ID },
-      "one complete answer",
-    )).resolves.toEqual({
-      messageId: REPLY_ID,
-      status: "sent",
-    });
-
-    expect(fetchMock).toHaveBeenCalledOnce();
-    const [url, init] = calls[0]!;
-    const key = relayReplyIdempotencyKey(MESSAGE_ID);
-    expect(String(url)).toBe(
-      `https://api.staging.relayapp.im/v1/chats/${CHAT_ID}/messages`,
-    );
-    expect(init?.method).toBe("POST");
-    expect(new Headers(init?.headers).get("authorization"))
-      .toBe("Bearer relay-test-token");
-    expect(new Headers(init?.headers).get("idempotency-key")).toBe(key);
-    expect(JSON.parse(String(init?.body))).toEqual({
-      message: {
-        idempotency_key: key,
-        parts: [{ type: "text", value: "one complete answer" }],
-      },
-    });
-  });
-});
-
 describe("signed messenger turns", () => {
-  it("runs Read, model, reply Action, and one Message for a direct Chat", async () => {
+  it("runs typing, Read, model, send Action, and one Message for a direct Chat", async () => {
     const relay = installRelayBackend({
       chatId: DIRECT_CHAT_ID,
       replyId: DIRECT_REPLY_ID,
@@ -539,7 +479,7 @@ describe("signed messenger turns", () => {
     expect(ledger.status).toBe(200);
     expect(await ledger.json()).toMatchObject({
       rows: [{
-        key: `action:reply:message:${RECOVERY_MESSAGE_ID}`,
+        key: `action:send:message:${RECOVERY_MESSAGE_ID}`,
         status: "settled",
       }],
     });
