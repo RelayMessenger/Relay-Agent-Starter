@@ -15,6 +15,20 @@ import {
   createRelayAdapter,
   decodeRelayThreadId,
 } from "@relaymessenger/chat-sdk-adapter";
+import {
+  createRelayClient,
+  RELAY_MESSENGER_DELIVERY,
+  startRelayTypingLifecycle,
+  withCardReplies,
+  withLocationShares,
+  withSelectionReplies,
+} from "@relaymessenger/think";
+import {
+  RELAY_TURN_MAX_STEPS,
+  relayActions,
+  relayTurnSettled,
+} from "@relaymessenger/think/actions";
+import { stepCountIs } from "ai";
 
 import type { Bindings } from "./env";
 import {
@@ -24,29 +38,28 @@ import {
 } from "./env";
 import { starterModel } from "./model";
 import { replyTargetLine } from "./reply-target";
-import {
-  createReplyAction,
-  markRelayChatRead,
-  type RelayTurnIdentity,
-} from "./reply";
 
 export { ThinkMessengerStateAgent };
 
 const RELAY_WEBHOOK_PATH = "/webhooks/relay";
 // Relay's downstream Message idempotency key makes immediate reclaim safe.
 const ACTION_RETRY_LEASE_MS = 0;
-const UUID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
 export function createRelayMessenger(env: Bindings) {
   const handle = requireRelayAgentHandle(env);
-  const adapter = createRelayAdapter({
-    baseUrl: env.RELAY_API_ORIGIN,
-    token: requireRelayToken(env),
-    typing: false,
-    userName: handle,
-    webhookSecret: requireRelayWebhookSecret(env),
-  });
+  // The @relaymessenger/think wrappers add a person's selection, card
+  // suggestion, and location share to the text the model reads.
+  const adapter = withCardReplies(withLocationShares(withSelectionReplies(
+    createRelayAdapter({
+      baseUrl: env.RELAY_API_ORIGIN,
+      token: requireRelayToken(env),
+      // The agent holds the typing indicator for the whole model turn
+      // (RelayChatAgent.chatWithMessengerContext).
+      typing: false,
+      userName: handle,
+      webhookSecret: requireRelayWebhookSecret(env),
+    }),
+  )));
   const relay = chatSdkMessenger({
     adapter,
     adapterName: "relay",
@@ -58,15 +71,9 @@ export function createRelayMessenger(env: Bindings) {
     },
     // The Worker routes each signed Relay Chat to its own root Think instance.
     conversation: "self",
-    delivery: {
-      emptyResponseText: "",
-      errorResponseText: "",
-      interruptedResponseText: "",
-      // Relay output is committed once by the native reply Action. Think's
-      // streamed model text must never become a second or partial Message.
-      splitText: () => [],
-      visibleSoftLimit: 0,
-    },
+    // Relay Messages are the model's `send` calls. This policy keeps Think
+    // from posting the model's own reply text as another Message.
+    delivery: RELAY_MESSENGER_DELIVERY,
     path: RELAY_WEBHOOK_PATH,
     provider: "relay",
     respondTo: ["direct-message", "mention"],
@@ -99,7 +106,7 @@ export class RelayChatAgent extends Think<Bindings> {
     terminalMessage: "",
   };
   override includeMcpTools = false;
-  override maxSteps = 1;
+  override maxSteps = RELAY_TURN_MAX_STEPS;
   override sendReasoning = false;
   override workspaceBash = false;
 
@@ -110,56 +117,58 @@ export class RelayChatAgent extends Think<Bindings> {
   override getSystemPrompt(): string {
     return [
       "You are a helpful agent in Relay Messenger.",
-      "Answer naturally and call reply exactly once with the complete response.",
-      "Do not emit a second answer after the reply Action.",
+      "Answer through the Relay tools: call send for each Message, one or",
+      "several short ones in a row, or react, or stay_silent when no answer is",
+      "needed. Stop calling tools when you are done.",
     ].join(" ");
   }
 
   override getActions(): Record<string, Action> {
-    return {
-      reply: createReplyAction({
-        env: this.env,
-        turn: () => this.relayTurn(),
-      }),
-    };
+    return relayActions(this, {
+      ctx: this.ctx,
+      env: this.env,
+      // This starter has no voice model to talk on a call, so the model is
+      // not offered start_call.
+      voice: false,
+    });
   }
 
   override getMessengers(): ThinkMessengers {
     return { relay: createRelayMessenger(this.env) };
   }
 
-  override async beforeTurn(context: TurnContext): Promise<TurnConfig> {
-    const turn = this.relayTurn();
+  /** Holds Relay's typing indicator for the whole turn, then clears it. */
+  override async chatWithMessengerContext(
+    ...args: Parameters<Think<Bindings>["chatWithMessengerContext"]>
+  ): Promise<void> {
+    const providerThreadId = args[2].thread.providerThreadId;
+    if (!providerThreadId) return super.chatWithMessengerContext(...args);
+    const relay = createRelayClient(this.env);
+    const { chatId } = decodeRelayThreadId(providerThreadId);
+    const typing = startRelayTypingLifecycle(relay, chatId);
     try {
-      await markRelayChatRead(this.env, turn.chatId);
-    } catch (error) {
-      console.warn(JSON.stringify({
-        event: "relay_read_failed",
-        chat_id: turn.chatId,
-        error: error instanceof Error ? error.message : String(error),
-      }));
+      await relay.chats.markAsRead(chatId).catch((error: unknown) => {
+        console.warn(JSON.stringify({
+          event: "relay_read_failed",
+          chat_id: chatId,
+          error: error instanceof Error ? error.message : String(error),
+        }));
+      });
+      await super.chatWithMessengerContext(...args);
+    } finally {
+      await (await typing).stop();
     }
-
-    return {
-      activeTools: context.tools.reply ? ["reply"] : [],
-      maxSteps: 1,
-      sendReasoning: false,
-      toolChoice: "required",
-    };
   }
 
-  private relayTurn(): RelayTurnIdentity {
-    const context = this.getMessengerContext();
-    const providerThreadId = context?.thread.providerThreadId;
-    const messageId =
-      context?.message?.providerMessageId ?? context?.message?.id;
-    if (!providerThreadId) {
-      throw new Error("Relay messenger context is missing a Chat ID");
-    }
-    const { chatId } = decodeRelayThreadId(providerThreadId);
-    if (!messageId || !UUID.test(messageId)) {
-      throw new Error("Relay messenger context is missing a Message ID");
-    }
-    return { chatId, messageId };
+  override beforeTurn(context: TurnContext): TurnConfig {
+    return {
+      activeTools: Object.keys(context.tools),
+      // The model decides how many Messages to send. relayTurnSettled ends
+      // the turn when the model calls no tool or calls stay_silent; the step
+      // cap ends a runaway turn.
+      maxSteps: RELAY_TURN_MAX_STEPS,
+      sendReasoning: false,
+      stopWhen: [relayTurnSettled, stepCountIs(RELAY_TURN_MAX_STEPS)],
+    };
   }
 }

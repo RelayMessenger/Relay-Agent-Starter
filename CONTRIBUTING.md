@@ -37,9 +37,8 @@ automatic deploy workflow.
 This revision is tested against:
 
 - Relay Server `3972ba8aaaae5b958985464f21bfbfbd32f688fb`
-- Relay Chat SDK `aac334c5081de6e6498963908c3965c843ebc1cf`
-- `@relaymessenger/chat-sdk-adapter@0.3.2-staging.0` npm integrity
-  `sha512-g12qLaFH1RLrBPcBtjpIHOB/OzwNB18mgxoSO5a3OBhEubHtxgGB5c14vtF+TUetHNDewLaKFiwciFpZJ6Lq2A==`
+- `@relaymessenger/think` (caret range in `package.json`, exact version in
+  `package-lock.json`)
 - OpenAPI SHA-256
   `c0214d4a2b302b3c9dbbc4d5cb8fb07808907d22feace58025ab7377d423515b`
 - Relay API `v1`
@@ -75,11 +74,15 @@ compatible with the old namespace. The pre-Think namespace is not compatible
 with this starter, so moving to the new Worker requires an idempotent overlap.
 
 During overlap, a Relay event may execute in both durable states. Think's
-Action ledger key `message:<inbound-message-id>` deduplicates reply retries
+Action ledger key `message:<inbound-message-id>:<n>` deduplicates send retries
 inside one state; it is not a cross-Worker event lock. The cross-Worker boundary
 is Relay's authenticated Message idempotency key
-`relay-agent-starter:<inbound-message-id>`. This starter has no other
-user-visible Action. If both Workers send the same body, Relay replays the
+`relay-agent:<inbound-message-id>:<n>`, where `<n>` is the send's place in the
+turn, which `@relaymessenger/think` 0.1.4 and later use for every `send`.
+Starters on `@relaymessenger/think` 0.1.3 or earlier used
+`relay-agent:<inbound-message-id>`, and starters before `@relaymessenger/think`
+used `relay-agent-starter:<inbound-message-id>`, so an overlap with one of them
+is not deduplicated. If both Workers send the same body, Relay replays the
 existing Message. If their bodies differ, Relay returns an idempotency conflict
 instead of committing a second Message. The winning Message remains canonical,
 but the losing Action can remain failed and must be observed.

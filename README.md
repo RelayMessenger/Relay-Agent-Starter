@@ -5,17 +5,26 @@ agent for [Relay Messenger](https://relayapp.im).
 
 It uses:
 
-- `@cloudflare/think@0.17.0` and native durable recovery;
+- `@cloudflare/think@0.20.1` and native durable recovery;
+- [`@relaymessenger/think`](https://www.npmjs.com/package/@relaymessenger/think)
+  for every Relay Action: `send` (text, buttons, selection, link, place,
+  payment, rich card, carousel), `react`, `request_location`,
+  `read_location`, `find_agents`, `payment_request`, `group`,
+  `share_contact_card`, and `stay_silent`;
+- the typing indicator for the whole model turn;
 - `chatSdkMessenger()` with Relay's official Chat SDK adapter;
 - one root Think conversation per Relay Chat;
 - signed Standard Webhooks ingress at `POST /webhooks/relay`;
 - direct-message replies and canonical structured mentions in groups;
 - a person's swipe-reply reaches the model with the Message it answers (its
   sender, the swiped part and its words), read once with `fetchMessage`;
-- one buffered, idempotent Relay Message per model turn.
+- a person's selection, card suggestion, or location share reaches the model
+  as data beside their words;
+- one or several Messages per turn, as the model decides, each one its own
+  idempotent `send`.
 
 There are no application-owned event or send tables, polling loops, outbound
-WebSockets, partial Message bubbles, Message effects, or copied Relay client.
+WebSockets, partial Message bubbles, or copied Relay client.
 Think owns conversation memory, fibers, recovery, and its Action ledger. The
 Relay packages own webhook verification and API calls.
 
@@ -27,26 +36,37 @@ Relay packages own webhook verification and API calls.
    Think conversation. The adapter verifies the forwarded raw body again.
 4. Direct Messages start turns. Group Messages start turns only when a text
    part's structured `mention` matches the receiving Chat's `owner_handle`.
-5. Think runs the model in a recoverable fiber. The model must call the native
-   `reply` Action once.
-6. The Action commits one complete Message through
-   `@relaymessenger/sdk`. Its stable idempotency key is derived
-   from the inbound Relay Message ID.
+5. The agent marks the Chat read and shows the typing indicator.
+6. Think runs the model in a recoverable fiber. The model answers through
+   Relay Actions: `send` once or several times in a row, or `react`, or
+   `stay_silent`. `stopWhen: [relayTurnSettled, stepCountIs(RELAY_TURN_MAX_STEPS)]`
+   ends the turn when the model calls no tool or calls `stay_silent`, and caps
+   a runaway turn.
+7. Each `send` commits one Message through `@relaymessenger/sdk`. Its stable
+   idempotency key is derived from the inbound Relay Message ID and the send's
+   place in the turn (`:1`, `:2`, ...). The typing indicator comes down when
+   the turn ends.
 
-Think's streamed response surface is intentionally limited to zero visible
-characters. Relay therefore never receives a draft or a second fallback
-Message; only the complete Action payload is committed.
+Only `send` makes Messages. The messenger's `delivery: RELAY_MESSENGER_DELIVERY`
+keeps Think from posting the model's own reply text, so Relay never receives a
+draft or a fallback Message; only complete Action payloads are committed.
 
 If an isolate dies after Relay commits the Message but before Think settles the
 Action ledger row, Think can reclaim that pending Action immediately. The retry
 uses the same Relay idempotency key and body, so Relay replays the existing
-Message instead of creating a duplicate.
+Message instead of creating a duplicate. After a restart the send count starts
+again at 1, so a send that already went is not sent twice.
 
 ## Prerequisites
 
 - Node.js 22.22.3 or newer
 - a Cloudflare account with Workers AI
 - an agent and its Agent Token from [Relay Console](https://console.relayapp.im)
+
+The Relay packages are published npm releases: `@relaymessenger/think` and
+`@relaymessenger/chat-sdk-adapter` take caret ranges, and
+`@relaymessenger/think` brings `@relaymessenger/sdk`. `package-lock.json`
+holds the exact versions.
 
 ## Local setup
 
@@ -101,8 +121,18 @@ Return another Workers AI model ID, or replace the function with any AI SDK
 do not need to change.
 
 Change the short system prompt in [`src/agent.ts`](src/agent.ts) for product
-behavior. Keep the instruction to call `reply` once unless you also replace the
-delivery design.
+behavior. Keep the instruction to answer through the Relay tools and keep
+`delivery: RELAY_MESSENGER_DELIVERY` unless you also replace the delivery
+design: with Think's default delivery, the model's own text becomes an extra
+Message.
+
+## Add your own tools
+
+`getActions()` in [`src/agent.ts`](src/agent.ts) returns
+`relayActions(...)`. Spread your own Think Actions beside them. Pass
+`media: { image, voiceMemo }` to `relayActions` to let `send` make images and
+voice memos with your own models, and `disable: [...]` to leave Actions out.
+`start_call` is off (`voice: false`) because the starter has no voice model.
 
 ## Validate
 
@@ -115,10 +145,12 @@ npm run test:installed
 npm run dry-run
 ```
 
-The suites cover the contract lock, dependency pins, deployment isolation and
-non-inherited Wrangler bindings, migration operation, model seam, signed direct
-and mentioned-group model/Action turns, unmentioned-group gating, stale Action
-recovery without duplicate delivery, and a clean registry-installed template.
+The suites cover the contract lock, published dependency ranges, deployment
+isolation and non-inherited Wrangler bindings, migration operation, model
+seam, signed direct and mentioned-group turns (typing, Read, model, `send`),
+two `send` calls in one turn making two Messages with no trailing model text,
+unmentioned-group gating, stale Action recovery without duplicate delivery,
+and a clean registry-installed template.
 
 ## Deploy
 

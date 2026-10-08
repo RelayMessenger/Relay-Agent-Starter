@@ -8,12 +8,8 @@ import { describe, expect, it } from "vitest";
 
 const RELAY_SERVER_SHA =
   "3972ba8aaaae5b958985464f21bfbfbd32f688fb";
-const RELAY_CHAT_SDK_SHA =
-  "aac334c5081de6e6498963908c3965c843ebc1cf";
 const RELAY_OPENAPI_SHA256 =
   "c0214d4a2b302b3c9dbbc4d5cb8fb07808907d22feace58025ab7377d423515b";
-const RELAY_ADAPTER_INTEGRITY =
-  "sha512-g12qLaFH1RLrBPcBtjpIHOB/OzwNB18mgxoSO5a3OBhEubHtxgGB5c14vtF+TUetHNDewLaKFiwciFpZJ6Lq2A==";
 
 function packageVersion(name: string): string {
   const manifest = JSON.parse(
@@ -38,31 +34,25 @@ describe("locked runtime contracts", () => {
     expect(agentPath).not.toMatch(/^    post:/mu);
   });
 
-  it("pins the coordinated Think and Relay packages", () => {
-    expect(packageVersion("@cloudflare/think")).toBe("0.17.0");
-    expect(packageVersion("@relaymessenger/chat-sdk-adapter"))
-      .toBe("0.3.2-staging.0");
-    expect(packageVersion("@relaymessenger/sdk")).toBe("0.3.1-staging.2");
-  });
-
-  it(`locks the adapter tarball built from Relay Chat SDK ${RELAY_CHAT_SDK_SHA.slice(0, 7)}`, () => {
-    const lock = JSON.parse(
-      readFileSync("package-lock.json", "utf8"),
-    ) as {
-      packages?: Record<string, {
-        integrity?: string;
-        resolved?: string;
-        version?: string;
-      }>;
+  it("takes the Relay packages from published releases", () => {
+    const manifest = JSON.parse(readFileSync("package.json", "utf8")) as {
+      dependencies: Record<string, string>;
     };
-    const adapter =
-      lock.packages?.["node_modules/@relaymessenger/chat-sdk-adapter"];
-    expect(adapter).toMatchObject({
-      integrity: RELAY_ADAPTER_INTEGRITY,
-      resolved:
-        "https://registry.npmjs.org/@relaymessenger/chat-sdk-adapter/-/chat-sdk-adapter-0.3.2-staging.0.tgz",
-      version: "0.3.2-staging.0",
-    });
+    expect(packageVersion("@cloudflare/think")).toBe("0.20.1");
+    // A builder gets every published fix: caret ranges, never a prerelease.
+    expect(manifest.dependencies["@relaymessenger/think"]).toMatch(/^\^\d+\.\d+\.\d+$/u);
+    // 0.1.4 keys each send by its place in the turn and ships
+    // RELAY_MESSENGER_DELIVERY.
+    expect(manifest.dependencies["@relaymessenger/think"]).toBe("^0.1.4");
+    expect(manifest.dependencies["@relaymessenger/chat-sdk-adapter"]).toMatch(/^\^\d+\.\d+\.\d+$/u);
+    expect(manifest.dependencies).not.toHaveProperty("@relaymessenger/sdk");
+    for (const name of [
+      "@relaymessenger/think",
+      "@relaymessenger/chat-sdk-adapter",
+      "@relaymessenger/sdk",
+    ]) {
+      expect(packageVersion(name)).toMatch(/^\d+\.\d+\.\d+$/u);
+    }
   });
 
   it("identifies the public starter repository exactly", () => {
@@ -193,7 +183,6 @@ describe("locked runtime contracts", () => {
   it("documents the locked update operation and an honest idempotent overlap", () => {
     const readme = readFileSync("CONTRIBUTING.md", "utf8");
     const openapi = readFileSync("contracts/relay-openapi.yaml", "utf8");
-    const reply = readFileSync("src/reply.ts", "utf8");
     const updatePath = openapi.indexOf(
       "  /v1/webhook-subscriptions/{subscriptionId}:",
     );
@@ -249,7 +238,7 @@ describe("locked runtime contracts", () => {
       "it is not a cross-Worker event lock",
     );
     expect(migration).toContain(
-      "`relay-agent-starter:<inbound-message-id>`",
+      "`relay-agent:<inbound-message-id>:<n>`",
     );
     expect(migration).toContain(
       "documented maximum webhook retry horizon",
@@ -262,12 +251,6 @@ describe("locked runtime contracts", () => {
     );
     expect(migration).toContain(
       "retain the new Worker and its state for the same",
-    );
-    expect(reply).toContain(
-      "return `relay-agent-starter:${messageId}`",
-    );
-    expect(reply).toContain(
-      "idempotencyKey: () => `message:${deps.turn().messageId}`",
     );
     expect(openapi).toContain(
       "The same authenticated sender, key, and Message body return the original",
@@ -327,6 +310,11 @@ describe("locked runtime contracts", () => {
       expect(source).not.toMatch(forbidden);
     }
     expect(source).toMatch(/chatSdkMessenger\(/u);
+    // Only send makes Messages; the model decides how many, under a step cap.
+    expect(source).toMatch(/delivery: RELAY_MESSENGER_DELIVERY,/u);
+    expect(source).toMatch(
+      /stopWhen: \[relayTurnSettled, stepCountIs\(RELAY_TURN_MAX_STEPS\)\]/u,
+    );
     expect(source).toMatch(/extends Think<Bindings>/u);
     expect(source).toMatch(
       /ACTION_RETRY_LEASE_MS = 0/u,

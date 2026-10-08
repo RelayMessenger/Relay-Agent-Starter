@@ -76,47 +76,77 @@ function chatIdFromThreadId(threadId: string): string {
   return threadId.slice("relay:".length);
 }
 
-function replyActionKey(messageId: string): string {
-  return `action:reply:message:${messageId}`;
+// @relaymessenger/think keys the first send of a turn `message:<id>:1`.
+function sendActionKey(messageId: string): string {
+  return `action:send:message:${messageId}:1`;
 }
 
+export const TEST_SECOND_REPLY_TEXT = "A second test reply.";
+// A person's Message containing this word gets two sends in one turn.
+export const TWO_SENDS_WORD = "twice";
+// The model's own words after its sends. RELAY_MESSENGER_DELIVERY must keep
+// Think from posting them as a Message.
+export const TEST_TRAILING_TEXT = "Trailing model text that is not a Message.";
+
+const USAGE = {
+  inputTokens: { cacheRead: undefined, cacheWrite: undefined, noCache: 8, total: 8 },
+  outputTokens: { reasoning: 0, text: 8, total: 8 },
+};
+
+type Prompt = Parameters<MockLanguageModelV3["doStream"]>[0]["prompt"];
+
+/** Sends made since the person's last Message, and that Message's words. */
+function turnSoFar(prompt: Prompt): { sends: number; userText: string } {
+  let lastUser = prompt.length - 1;
+  while (lastUser >= 0 && prompt[lastUser]!.role !== "user") lastUser -= 1;
+  const user = prompt[lastUser];
+  const userText = user && Array.isArray(user.content)
+    ? user.content.map((part) => (part.type === "text" ? part.text : "")).join(" ")
+    : "";
+  let sends = 0;
+  for (const message of prompt.slice(lastUser + 1)) {
+    if (message.role !== "assistant") continue;
+    for (const part of message.content) {
+      if (part.type === "tool-call" && part.toolName === "send") sends += 1;
+    }
+  }
+  return { sends, userText };
+}
+
+// Each step sends the next scripted Message; once the script is done the
+// model answers with plain text and no tool, which ends the turn.
 function testModel(): MockLanguageModelV3 {
   return new MockLanguageModelV3({
-    doStream: async () => {
-      const toolCallId = crypto.randomUUID();
+    doStream: async ({ prompt }) => {
+      const { sends, userText } = turnSoFar(prompt);
+      const script = userText.includes(TWO_SENDS_WORD)
+        ? [TEST_REPLY_TEXT, TEST_SECOND_REPLY_TEXT]
+        : [TEST_REPLY_TEXT];
+      const next = script[sends];
+      const body = next === undefined
+        ? [
+            { id: "trailing", type: "text-start" as const },
+            { delta: TEST_TRAILING_TEXT, id: "trailing", type: "text-delta" as const },
+            { id: "trailing", type: "text-end" as const },
+          ]
+        : [{
+            input: JSON.stringify({ kind: "text", text: next }),
+            toolCallId: crypto.randomUUID(),
+            toolName: "send",
+            type: "tool-call" as const,
+          }];
       return {
         stream: simulateReadableStream({
           chunkDelayInMs: null,
           chunks: [
+            { type: "stream-start" as const, warnings: [] },
+            ...body,
             {
-              type: "stream-start" as const,
-              warnings: [],
-            },
-            {
-              input: JSON.stringify({ text: TEST_REPLY_TEXT }),
-              toolCallId,
-              toolName: "reply",
-              type: "tool-call" as const,
-            },
-            {
-              finishReason: {
-                raw: "tool_calls",
-                unified: "tool-calls" as const,
-              },
+              finishReason: next === undefined
+                ? { raw: "stop", unified: "stop" as const }
+                : { raw: "tool_calls", unified: "tool-calls" as const },
               type: "finish" as const,
-              usage: {
-                inputTokens: {
-                  cacheRead: undefined,
-                  cacheWrite: undefined,
-                  noCache: 8,
-                  total: 8,
-                },
-                outputTokens: {
-                  reasoning: 0,
-                  text: 8,
-                  total: 8,
-                },
-              },
+              usage: USAGE,
             },
           ],
           initialDelayInMs: null,
@@ -136,8 +166,8 @@ export class RelayChatAgent extends StarterRelayChatAgent {
   seedLocalStaleReplyClaim(messageId: string, text: string): void {
     const now = Date.now();
     const updatedAt = now - TEST_ACTION_RETRY_LEASE_MS - 1_000;
-    const key = replyActionKey(messageId);
-    const inputHash = stableHash({ text });
+    const key = sendActionKey(messageId);
+    const inputHash = stableHash({ kind: "text", text });
     this.sql`
       CREATE TABLE IF NOT EXISTS cf_think_action_ledger (
         key TEXT PRIMARY KEY,
@@ -156,7 +186,7 @@ export class RelayChatAgent extends StarterRelayChatAgent {
         key, action_name, request_id, tool_call_id, input_hash, status,
         result_json, created_at, updated_at
       ) VALUES (
-        ${key}, ${"reply"}, ${"stale-request"}, ${"stale-tool"},
+        ${key}, ${"send"}, ${"stale-request"}, ${"stale-tool"},
         ${inputHash}, ${"pending"}, ${null}, ${updatedAt}, ${updatedAt}
       )
       ON CONFLICT(key) DO UPDATE SET
@@ -175,7 +205,7 @@ export class RelayChatAgent extends StarterRelayChatAgent {
     return this.sql<ActionLedgerRow>`
       SELECT key, result_json, status, updated_at
       FROM cf_think_action_ledger
-      WHERE action_name = ${"reply"}
+      WHERE action_name = ${"send"}
       ORDER BY key ASC
     `;
   }
