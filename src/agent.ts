@@ -17,6 +17,7 @@ import {
 } from "@relaymessenger/chat-sdk-adapter";
 import {
   createRelayClient,
+  RELAY_MESSENGER_DELIVERY,
   startRelayTypingLifecycle,
   withCardReplies,
   withLocationShares,
@@ -27,6 +28,7 @@ import {
   relayActions,
   relayTurnSettled,
 } from "@relaymessenger/think/actions";
+import { stepCountIs } from "ai";
 
 import type { Bindings } from "./env";
 import {
@@ -69,15 +71,9 @@ export function createRelayMessenger(env: Bindings) {
     },
     // The Worker routes each signed Relay Chat to its own root Think instance.
     conversation: "self",
-    delivery: {
-      emptyResponseText: "",
-      errorResponseText: "",
-      interruptedResponseText: "",
-      // Relay output is committed by the Relay Actions. Think's streamed
-      // model text must never become a second or partial Message.
-      splitText: () => [],
-      visibleSoftLimit: 0,
-    },
+    // Relay Messages are the model's `send` calls. This policy keeps Think
+    // from posting the model's own reply text as another Message.
+    delivery: RELAY_MESSENGER_DELIVERY,
     path: RELAY_WEBHOOK_PATH,
     provider: "relay",
     respondTo: ["direct-message", "mention"],
@@ -121,8 +117,9 @@ export class RelayChatAgent extends Think<Bindings> {
   override getSystemPrompt(): string {
     return [
       "You are a helpful agent in Relay Messenger.",
-      "Answer through the Relay tools: call send once with your complete answer,",
-      "or react, or stay_silent when no answer is needed.",
+      "Answer through the Relay tools: call send for each Message, one or",
+      "several short ones in a row, or react, or stay_silent when no answer is",
+      "needed. Stop calling tools when you are done.",
     ].join(" ");
   }
 
@@ -166,12 +163,12 @@ export class RelayChatAgent extends Think<Bindings> {
   override beforeTurn(context: TurnContext): TurnConfig {
     return {
       activeTools: Object.keys(context.tools),
-      // One visible act per turn: relayTurnSettled ends the turn after it,
-      // and lets a read (such as a location read) take a step first.
+      // The model decides how many Messages to send. relayTurnSettled ends
+      // the turn when the model calls no tool or calls stay_silent; the step
+      // cap ends a runaway turn.
       maxSteps: RELAY_TURN_MAX_STEPS,
       sendReasoning: false,
-      stopWhen: relayTurnSettled,
-      toolChoice: "required",
+      stopWhen: [relayTurnSettled, stepCountIs(RELAY_TURN_MAX_STEPS)],
     };
   }
 }

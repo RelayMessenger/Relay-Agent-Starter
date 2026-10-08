@@ -20,7 +20,8 @@ It uses:
   sender, the swiped part and its words), read once with `fetchMessage`;
 - a person's selection, card suggestion, or location share reaches the model
   as data beside their words;
-- one idempotent visible act per model turn.
+- one or several Messages per turn, as the model decides, each one its own
+  idempotent `send`.
 
 There are no application-owned event or send tables, polling loops, outbound
 WebSockets, partial Message bubbles, or copied Relay client.
@@ -36,21 +37,25 @@ Relay packages own webhook verification and API calls.
 4. Direct Messages start turns. Group Messages start turns only when a text
    part's structured `mention` matches the receiving Chat's `owner_handle`.
 5. The agent marks the Chat read and shows the typing indicator.
-6. Think runs the model in a recoverable fiber. The model must call a Relay
-   Action: usually `send` once, or `react`, or `stay_silent`. The turn ends
-   after that one visible act.
-7. The Action commits the Message through `@relaymessenger/sdk`. Its stable
-   idempotency key is derived from the inbound Relay Message ID. The typing
-   indicator comes down when the turn ends.
+6. Think runs the model in a recoverable fiber. The model answers through
+   Relay Actions: `send` once or several times in a row, or `react`, or
+   `stay_silent`. `stopWhen: [relayTurnSettled, stepCountIs(RELAY_TURN_MAX_STEPS)]`
+   ends the turn when the model calls no tool or calls `stay_silent`, and caps
+   a runaway turn.
+7. Each `send` commits one Message through `@relaymessenger/sdk`. Its stable
+   idempotency key is derived from the inbound Relay Message ID and the send's
+   place in the turn (`:1`, `:2`, ...). The typing indicator comes down when
+   the turn ends.
 
-Think's streamed response surface is intentionally limited to zero visible
-characters. Relay therefore never receives a draft or a second fallback
-Message; only the complete Action payload is committed.
+Only `send` makes Messages. The messenger's `delivery: RELAY_MESSENGER_DELIVERY`
+keeps Think from posting the model's own reply text, so Relay never receives a
+draft or a fallback Message; only complete Action payloads are committed.
 
 If an isolate dies after Relay commits the Message but before Think settles the
 Action ledger row, Think can reclaim that pending Action immediately. The retry
 uses the same Relay idempotency key and body, so Relay replays the existing
-Message instead of creating a duplicate.
+Message instead of creating a duplicate. After a restart the send count starts
+again at 1, so a send that already went is not sent twice.
 
 ## Prerequisites
 
@@ -129,13 +134,15 @@ compatible with the old namespace. The pre-Think namespace is not compatible
 with this starter, so moving to the new Worker requires an idempotent overlap.
 
 During overlap, a Relay event may execute in both durable states. Think's
-Action ledger key `message:<inbound-message-id>` deduplicates send retries
+Action ledger key `message:<inbound-message-id>:<n>` deduplicates send retries
 inside one state; it is not a cross-Worker event lock. The cross-Worker boundary
 is Relay's authenticated Message idempotency key
-`relay-agent:<inbound-message-id>`, which every `@relaymessenger/think` Action
-that sends a Message uses. Starters before `@relaymessenger/think` used
-`relay-agent-starter:<inbound-message-id>`, so an overlap with one of them is
-not deduplicated. If both Workers send the same body, Relay replays the
+`relay-agent:<inbound-message-id>:<n>`, where `<n>` is the send's place in the
+turn, which `@relaymessenger/think` 0.1.4 and later use for every `send`.
+Starters on `@relaymessenger/think` 0.1.3 or earlier used
+`relay-agent:<inbound-message-id>`, and starters before `@relaymessenger/think`
+used `relay-agent-starter:<inbound-message-id>`, so an overlap with one of them
+is not deduplicated. If both Workers send the same body, Relay replays the
 existing Message. If their bodies differ, Relay returns an idempotency conflict
 instead of committing a second Message. The winning Message remains canonical,
 but the losing Action can remain failed and must be observed.
@@ -234,8 +241,10 @@ Return another Workers AI model ID, or replace the function with any AI SDK
 do not need to change.
 
 Change the short system prompt in [`src/agent.ts`](src/agent.ts) for product
-behavior. Keep the instruction to answer through the Relay tools unless you
-also replace the delivery design.
+behavior. Keep the instruction to answer through the Relay tools and keep
+`delivery: RELAY_MESSENGER_DELIVERY` unless you also replace the delivery
+design: with Think's default delivery, the model's own text becomes an extra
+Message.
 
 ## Add your own tools
 
@@ -259,6 +268,7 @@ npm run dry-run
 The suites cover the contract lock, published dependency ranges, deployment
 isolation and non-inherited Wrangler bindings, migration operation, model
 seam, signed direct and mentioned-group turns (typing, Read, model, `send`),
+two `send` calls in one turn making two Messages with no trailing model text,
 unmentioned-group gating, stale Action recovery without duplicate delivery,
 and a clean registry-installed template.
 
