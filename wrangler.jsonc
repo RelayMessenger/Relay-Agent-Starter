@@ -17,7 +17,7 @@
   "vars": {
     "MODEL_ID": "@cf/openai/gpt-oss-120b",
     "RELAY_AGENT_HANDLE": "your_agent_handle",
-    "RELAY_API_ORIGIN": "https://api.staging.relayapp.im"
+    "RELAY_API_ORIGIN": "https://api.relayapp.im"
   },
   "ai": {
     "binding": "AI"
@@ -42,31 +42,6 @@
     }
   ],
   "env": {
-    "staging": {
-      "name": "relay-think-agent-starter-staging",
-      "secrets": {
-        "required": [
-          "RELAY_AGENT_TOKEN",
-          "RELAY_WEBHOOK_SECRET"
-        ]
-      },
-      "vars": {
-        "MODEL_ID": "@cf/openai/gpt-oss-120b",
-        "RELAY_AGENT_HANDLE": "your_agent_handle",
-        "RELAY_API_ORIGIN": "https://api.staging.relayapp.im"
-      },
-      "ai": {
-        "binding": "AI"
-      },
-      "durable_objects": {
-        "bindings": [
-          {
-            "name": "RelayChat",
-            "class_name": "RelayChatAgent"
-          }
-        ]
-      }
-    },
     "production": {
       "name": "relay-think-agent-starter",
       "secrets": {

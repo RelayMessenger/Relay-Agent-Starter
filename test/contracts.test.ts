@@ -100,14 +100,14 @@ describe("locked runtime contracts", () => {
     expect(config.vars).toEqual({
       MODEL_ID: "@cf/openai/gpt-oss-120b",
       RELAY_AGENT_HANDLE: "your_agent_handle",
-      RELAY_API_ORIGIN: "https://api.staging.relayapp.im",
+      RELAY_API_ORIGIN: "https://api.relayapp.im",
     });
     expect(config.ai).toEqual({ binding: "AI" });
     expect(config.durable_objects?.bindings).toEqual([{
       class_name: "RelayChatAgent",
       name: "RelayChat",
     }]);
-    expect(manifest.scripts?.deploy).toBeUndefined();
+    expect(manifest.scripts?.deploy).toBe("wrangler deploy --env production");
     expect(manifest.scripts?.["dry-run:default"])
       .toBe("wrangler deploy --dry-run");
   });
@@ -127,11 +127,10 @@ describe("locked runtime contracts", () => {
       }>;
     };
 
-    expect(config.env?.staging?.name)
-      .toBe("relay-think-agent-starter-staging");
+    expect(Object.keys(config.env ?? {})).toEqual(["production"]);
     expect(config.env?.production?.name)
       .toBe("relay-think-agent-starter");
-    for (const environment of ["staging", "production"]) {
+    for (const environment of ["production"]) {
       const target = config.env?.[environment];
       expect(target?.secrets?.required).toEqual([
         "RELAY_AGENT_TOKEN",
@@ -147,8 +146,6 @@ describe("locked runtime contracts", () => {
         name: "RelayChat",
       }]);
     }
-    expect(config.env?.staging?.vars?.RELAY_API_ORIGIN)
-      .toBe("https://api.staging.relayapp.im");
     expect(config.env?.production?.vars?.RELAY_API_ORIGIN)
       .toBe("https://api.relayapp.im");
   });
@@ -162,15 +159,11 @@ describe("locked runtime contracts", () => {
       readFileSync("package.json", "utf8"),
     ) as { scripts?: Record<string, string> };
 
-    expect(manifest.scripts?.["deploy:staging"]).toBe(
-      "node scripts/deploy.mjs staging",
-    );
     expect(manifest.scripts?.["deploy:production"]).toBe(
       "node scripts/deploy.mjs production",
     );
     expect(guard).toMatch(/process\.argv\.length !== 3/u);
     expect(guard).toMatch(/production: \{\s+branch: "main"/u);
-    expect(guard).toMatch(/staging: \{\s+branch: "staging"/u);
     expect(guard).toMatch(/remote: "origin"/u);
     expect(guard).toMatch(/config\.env\?\.\[environment\]\?\.name/u);
     expect(guard).toMatch(/CLOUDFLARE_ENV !== environment/u);
@@ -188,7 +181,7 @@ describe("locked runtime contracts", () => {
   });
 
   it("documents the locked update operation and an honest idempotent overlap", () => {
-    const readme = readFileSync("README.md", "utf8");
+    const readme = readFileSync("CONTRIBUTING.md", "utf8");
     const openapi = readFileSync("contracts/relay-openapi.yaml", "utf8");
     const updatePath = openapi.indexOf(
       "  /v1/webhook-subscriptions/{subscriptionId}:",
@@ -204,7 +197,7 @@ describe("locked runtime contracts", () => {
     const migrationStart = readme.indexOf(
       "## Move the existing staging webhook",
     );
-    const migrationEnd = readme.indexOf("## Replace the model");
+    const migrationEnd = readme.length;
     const migration = readme.slice(migrationStart, migrationEnd);
 
     expect(updatePath).toBeGreaterThanOrEqual(0);
