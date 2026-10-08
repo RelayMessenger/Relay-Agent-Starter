@@ -14,7 +14,7 @@ function bindings(
     MODEL_ID: "@cf/openai/gpt-oss-120b",
     RELAY_AGENT_HANDLE: "starter_test",
     RELAY_AGENT_TOKEN: "relay-test-token",
-    RELAY_API_ORIGIN: "https://api.staging.relayapp.im",
+    RELAY_API_ORIGIN: "https://api.relayapp.im",
     RELAY_WEBHOOK_SECRET: "whsec_dGVzdC1zZWNyZXQ=",
     ...overrides,
   };

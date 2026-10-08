@@ -286,7 +286,7 @@ function bindings(): Bindings {
     MODEL_ID: "@cf/openai/gpt-oss-120b",
     RELAY_AGENT_HANDLE: "your_agent_handle",
     RELAY_AGENT_TOKEN: "relay-test-token",
-    RELAY_API_ORIGIN: "https://api.staging.relayapp.im",
+    RELAY_API_ORIGIN: "https://api.relayapp.im",
     RELAY_WEBHOOK_SECRET: "whsec_dGVzdC1zZWNyZXQ=",
     RelayChat: {} as DurableObjectNamespace<RelayChatAgent>,
   };
