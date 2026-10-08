@@ -76,8 +76,8 @@ function chatIdFromThreadId(threadId: string): string {
   return threadId.slice("relay:".length);
 }
 
-function replyActionKey(messageId: string): string {
-  return `action:reply:message:${messageId}`;
+function sendActionKey(messageId: string): string {
+  return `action:send:message:${messageId}`;
 }
 
 function testModel(): MockLanguageModelV3 {
@@ -93,9 +93,9 @@ function testModel(): MockLanguageModelV3 {
               warnings: [],
             },
             {
-              input: JSON.stringify({ text: TEST_REPLY_TEXT }),
+              input: JSON.stringify({ kind: "text", text: TEST_REPLY_TEXT }),
               toolCallId,
-              toolName: "reply",
+              toolName: "send",
               type: "tool-call" as const,
             },
             {
@@ -136,8 +136,8 @@ export class RelayChatAgent extends StarterRelayChatAgent {
   seedLocalStaleReplyClaim(messageId: string, text: string): void {
     const now = Date.now();
     const updatedAt = now - TEST_ACTION_RETRY_LEASE_MS - 1_000;
-    const key = replyActionKey(messageId);
-    const inputHash = stableHash({ text });
+    const key = sendActionKey(messageId);
+    const inputHash = stableHash({ kind: "text", text });
     this.sql`
       CREATE TABLE IF NOT EXISTS cf_think_action_ledger (
         key TEXT PRIMARY KEY,
@@ -156,7 +156,7 @@ export class RelayChatAgent extends StarterRelayChatAgent {
         key, action_name, request_id, tool_call_id, input_hash, status,
         result_json, created_at, updated_at
       ) VALUES (
-        ${key}, ${"reply"}, ${"stale-request"}, ${"stale-tool"},
+        ${key}, ${"send"}, ${"stale-request"}, ${"stale-tool"},
         ${inputHash}, ${"pending"}, ${null}, ${updatedAt}, ${updatedAt}
       )
       ON CONFLICT(key) DO UPDATE SET
@@ -175,7 +175,7 @@ export class RelayChatAgent extends StarterRelayChatAgent {
     return this.sql<ActionLedgerRow>`
       SELECT key, result_json, status, updated_at
       FROM cf_think_action_ledger
-      WHERE action_name = ${"reply"}
+      WHERE action_name = ${"send"}
       ORDER BY key ASC
     `;
   }
