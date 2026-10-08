@@ -41,6 +41,9 @@ describe("locked runtime contracts", () => {
     expect(packageVersion("@cloudflare/think")).toBe("0.20.1");
     // A builder gets every published fix: caret ranges, never a prerelease.
     expect(manifest.dependencies["@relaymessenger/think"]).toMatch(/^\^\d+\.\d+\.\d+$/u);
+    // 0.1.4 keys each send by its place in the turn and ships
+    // RELAY_MESSENGER_DELIVERY.
+    expect(manifest.dependencies["@relaymessenger/think"]).toBe("^0.1.4");
     expect(manifest.dependencies["@relaymessenger/chat-sdk-adapter"]).toMatch(/^\^\d+\.\d+\.\d+$/u);
     expect(manifest.dependencies).not.toHaveProperty("@relaymessenger/sdk");
     for (const name of [
@@ -242,7 +245,7 @@ describe("locked runtime contracts", () => {
       "it is not a cross-Worker event lock",
     );
     expect(migration).toContain(
-      "`relay-agent:<inbound-message-id>`",
+      "`relay-agent:<inbound-message-id>:<n>`",
     );
     expect(migration).toContain(
       "documented maximum webhook retry horizon",
@@ -314,6 +317,11 @@ describe("locked runtime contracts", () => {
       expect(source).not.toMatch(forbidden);
     }
     expect(source).toMatch(/chatSdkMessenger\(/u);
+    // Only send makes Messages; the model decides how many, under a step cap.
+    expect(source).toMatch(/delivery: RELAY_MESSENGER_DELIVERY,/u);
+    expect(source).toMatch(
+      /stopWhen: \[relayTurnSettled, stepCountIs\(RELAY_TURN_MAX_STEPS\)\]/u,
+    );
     expect(source).toMatch(/extends Think<Bindings>/u);
     expect(source).toMatch(
       /ACTION_RETRY_LEASE_MS = 0/u,

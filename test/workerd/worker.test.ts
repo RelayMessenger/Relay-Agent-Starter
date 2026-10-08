@@ -11,14 +11,22 @@ import {
   createRelayMessenger,
   type RelayChatAgent,
 } from "../../src/agent";
+import { RELAY_MESSENGER_DELIVERY } from "@relaymessenger/think";
+
 import type { Bindings } from "../../src/env";
 import { starterModel } from "../../src/model";
-import { TEST_REPLY_TEXT } from "./harness";
+import {
+  TEST_REPLY_TEXT,
+  TEST_SECOND_REPLY_TEXT,
+  TEST_TRAILING_TEXT,
+  TWO_SENDS_WORD,
+} from "./harness";
 
 // @relaymessenger/think's send Action keys each Message by the Relay Message
-// it answers, so a recovered turn replays it instead of sending it twice.
-function relayReplyIdempotencyKey(messageId: string): string {
-  return `relay-agent:${messageId}`;
+// it answers and its place in the turn, so a recovered turn replays it
+// instead of sending it twice.
+function relayReplyIdempotencyKey(messageId: string, number = 1): string {
+  return `relay-agent:${messageId}:${number}`;
 }
 
 const WEBHOOK_SECRET = "test-secret";
@@ -40,6 +48,10 @@ const RECOVERY_CHAT_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec50";
 const RECOVERY_MESSAGE_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec51";
 const RECOVERY_EVENT_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec52";
 const RECOVERY_REPLY_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec53";
+const TWO_CHAT_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec60";
+const TWO_MESSAGE_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec61";
+const TWO_EVENT_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec62";
+const TWO_REPLY_ID = "01993d50-ef7b-7b37-886b-23fd80c7ec63";
 
 function base64(bytes: ArrayBuffer): string {
   return btoa(String.fromCharCode(...new Uint8Array(bytes)));
@@ -115,15 +127,17 @@ function messageEnvelope(input: {
   isGroup: boolean;
   mentioned: boolean;
   messageId: string;
+  text?: string;
 }): Record<string, unknown> {
+  const text = input.text ?? "please reply";
   const parts = input.mentioned
     ? [{
         mention: "starter_test",
         mention_range: [0, "starter_test".length],
         type: "text",
-        value: "@starter_test please reply",
+        value: `@starter_test ${text}`,
       }]
-    : [{ type: "text", value: "please reply" }];
+    : [{ type: "text", value: text }];
   return envelope(input.eventId, "message.received", {
     chat: {
       id: input.chatId,
@@ -152,11 +166,15 @@ interface CommittedRelayMessage {
   messageId: string;
 }
 
-function expectedReplyBody(messageId: string) {
-  const key = relayReplyIdempotencyKey(messageId);
+function expectedReplyBody(
+  messageId: string,
+  number = 1,
+  text = TEST_REPLY_TEXT,
+) {
+  const key = relayReplyIdempotencyKey(messageId, number);
   return {
     message: {
-      parts: [{ type: "text", value: TEST_REPLY_TEXT }],
+      parts: [{ type: "text", value: text }],
       idempotency_key: key,
     },
   };
@@ -223,10 +241,13 @@ function installRelayBackend(input: {
         }, { status: 202 });
       }
       newCommits += 1;
-      committed.set(key, { body, messageId: input.replyId });
+      const messageId = newCommits === 1
+        ? input.replyId
+        : `${input.replyId.slice(0, -2)}${String(newCommits).padStart(2, "0")}`;
+      committed.set(key, { body, messageId });
       return Response.json({
         chat_id: input.chatId,
-        message: { id: input.replyId },
+        message: { id: messageId },
       }, { status: 202 });
     }
     throw new Error(`Unexpected Relay request: ${request.method} ${pathname}`);
@@ -289,8 +310,9 @@ describe("Relay Think messenger", () => {
     });
   });
 
-  it("buffers visible output and leaves one canonical send to the Relay Actions", () => {
+  it("never posts the model's own text: only send calls make Messages", () => {
     const delivery = createRelayMessenger(bindings()).delivery;
+    expect(delivery).toBe(RELAY_MESSENGER_DELIVERY);
     expect(delivery).toMatchObject({
       emptyResponseText: "",
       errorResponseText: "",
@@ -429,6 +451,43 @@ describe("signed messenger turns", () => {
     expect(relay.newCommits()).toBe(1);
   });
 
+  it("makes two Messages when the model sends twice in one turn, and drops its trailing text", async () => {
+    const relay = installRelayBackend({
+      chatId: TWO_CHAT_ID,
+      replyId: TWO_REPLY_ID,
+    });
+    const response = await SELF.fetch(
+      await signedRequest(messageEnvelope({
+        chatId: TWO_CHAT_ID,
+        eventId: TWO_EVENT_ID,
+        isGroup: false,
+        mentioned: false,
+        messageId: TWO_MESSAGE_ID,
+        text: `please reply ${TWO_SENDS_WORD}`,
+      })),
+    );
+
+    expect(response.status).toBe(200);
+    expect(relay.calls.map(({ method, pathname }) => [method, pathname])).toEqual([
+      ["POST", `/v1/chats/${TWO_CHAT_ID}/typing`],
+      ["POST", `/v1/chats/${TWO_CHAT_ID}/read`],
+      ["POST", `/v1/chats/${TWO_CHAT_ID}/messages`],
+      ["POST", `/v1/chats/${TWO_CHAT_ID}/messages`],
+      ["DELETE", `/v1/chats/${TWO_CHAT_ID}/typing`],
+    ]);
+    const sends = relay.calls.filter(({ pathname }) => pathname.endsWith("/messages"));
+    expect(sends.map(({ headers }) => headers.get("idempotency-key"))).toEqual([
+      relayReplyIdempotencyKey(TWO_MESSAGE_ID, 1),
+      relayReplyIdempotencyKey(TWO_MESSAGE_ID, 2),
+    ]);
+    expect(sends.map(({ body }) => JSON.parse(body))).toEqual([
+      expectedReplyBody(TWO_MESSAGE_ID, 1, TEST_REPLY_TEXT),
+      expectedReplyBody(TWO_MESSAGE_ID, 2, TEST_SECOND_REPLY_TEXT),
+    ]);
+    expect(relay.newCommits()).toBe(2);
+    expect(relay.calls.some(({ body }) => body.includes(TEST_TRAILING_TEXT))).toBe(false);
+  });
+
   it("reclaims a stale Action claim and replays the committed Message", async () => {
     const threadId = `relay:${RECOVERY_CHAT_ID}`;
     const key = relayReplyIdempotencyKey(RECOVERY_MESSAGE_ID);
@@ -479,7 +538,7 @@ describe("signed messenger turns", () => {
     expect(ledger.status).toBe(200);
     expect(await ledger.json()).toMatchObject({
       rows: [{
-        key: `action:send:message:${RECOVERY_MESSAGE_ID}`,
+        key: `action:send:message:${RECOVERY_MESSAGE_ID}:1`,
         status: "settled",
       }],
     });
