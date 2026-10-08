@@ -1,0 +1,27 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    target-branch: staging
+    schedule:
+      interval: weekly
+    groups:
+      cloudflare:
+        patterns:
+          - wrangler
+          - workerd
+          - agents
+          - miniflare
+          - "@cloudflare/*"
+      everything-else:
+        patterns:
+          - "*"
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: staging
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns:
+          - "*"
