@@ -42,12 +42,12 @@
   },
   "dependencies": {
     "@cloudflare/think": "0.20.1",
-    "@relaymessenger/chat-sdk-adapter": "^0.3.13",
-    "@relaymessenger/think": "^0.1.4",
+    "@relaymessenger/chat-sdk-adapter": "^0.3.15",
+    "@relaymessenger/think": "^0.1.9",
     "agents": "0.27.0",
-    "ai": "7.0.131",
+    "ai": "7.0.138",
     "chat": "4.41.1",
-    "zod": "4.6.5"
+    "zod": "4.6.7"
   },
   "//": [
     "agents 0.28.0 still pins vulnerable MCP peers. Remove the scoped override when upstream fixes https://github.com/advisories/GHSA-6qxp-vccf-f47h",
@@ -64,9 +64,9 @@
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "1.4.0",
-    "@types/node": "26.6.4",
+    "@types/node": "26.6.5",
     "typescript": "7.0.2",
-    "vitest": "5.0.3",
+    "vitest": "5.0.4",
     "wrangler": "4.148.0"
   },
   "cloudflare": {
